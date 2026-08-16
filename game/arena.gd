@@ -284,10 +284,6 @@ func _draw_paddle(off: Vector2) -> void:
 	draw_texture_rect(TEX["paddle"], Rect2(-w / 2.0, -PADDLE_BAR * h, w, h), false)
 	draw_set_transform(off)
 
-	if sim.t < sim.wide_until:                      # подсветка активного бонуса ширины
-		draw_rect(Rect2(sim.paddle_x - half_w, CFG.PADDLE_Y - 12.0, w, 24.0),
-				Color("57d07a", 0.5), false, 2.0)
-
 
 func _draw_item(it: Sim.Item) -> void:
 	var tex: Texture2D = TEX[ITEM_TEX[it.kind]]

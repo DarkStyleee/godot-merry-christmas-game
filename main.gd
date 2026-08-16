@@ -20,6 +20,11 @@ var _settings_from := Screen.MENU
 
 
 func _ready() -> void:
+	# Песочницу поднимаем до окна и до всего остального: отладочный прогон не
+	# должен ни писать в профиль, ни разворачиваться на весь экран, если игрок
+	# держит там полноэкранный режим.
+	var args := OS.get_cmdline_user_args()
+	Profile.sandbox = args.has("--check") or not _arg(args, "--shot").is_empty()
 	Profile.apply_window()
 
 	_menu.start_requested.connect(start_run)
@@ -155,7 +160,6 @@ func _handle_cmdline() -> void:
 	var args := OS.get_cmdline_user_args()
 
 	if args.has("--check"):
-		Profile.sandbox = true
 		SelfCheck.run_all(args.has("--curve"))
 		_check_flow()
 		get_tree().quit()
@@ -165,7 +169,6 @@ func _handle_cmdline() -> void:
 	if shot.is_empty():
 		return
 
-	Profile.sandbox = true
 	Profile.muted = true
 	var diff := _arg(args, "--diff")
 	if not CFG.DIFFICULTY.has(diff):
