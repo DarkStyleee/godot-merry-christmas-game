@@ -21,7 +21,7 @@ var fullscreen := false
 var screen_shake := true
 var landing_markers := true
 
-## diff -> {score, level, streak, time, best_level}
+## CFG.record_key(режим, сложность) -> {score, level, streak, time, best_level}
 var records: Dictionary = {}
 
 ## Отладочный прогон: на диск не пишем, чужие рекорды не портим.
@@ -50,17 +50,18 @@ func changed() -> void:
 	save()
 
 
-func record_for(diff_key: String) -> Dictionary:
-	return records.get(diff_key, {})
+## Ключ здесь и ниже — из CFG.record_key(режим, сложность), а не голая сложность.
+func record_for(key: String) -> Dictionary:
+	return records.get(key, {})
 
 
-func best_score(diff_key: String) -> int:
-	return int(record_for(diff_key).get("score", 0))
+func best_score(key: String) -> int:
+	return int(record_for(key).get("score", 0))
 
 
 ## Кладёт итоги забега в таблицу. Возвращает true, если счёт стал рекордным.
 func submit_run(stats: Dictionary) -> bool:
-	var key: String = stats["diff"]
+	var key := CFG.record_key(stats["mode"], stats["diff"])
 	var cur: Dictionary = records.get(key, {}).duplicate()
 	var is_record := int(stats["score"]) > int(cur.get("score", -1))
 	cur["best_level"] = maxi(int(cur.get("best_level", 0)), int(stats["level"]))
@@ -111,10 +112,12 @@ func _load() -> void:
 	fullscreen = bool(cf.get_value("video", "fullscreen", false))
 	screen_shake = bool(cf.get_value("game", "screen_shake", true))
 	landing_markers = bool(cf.get_value("game", "landing_markers", true))
-	for key: String in CFG.DIFFICULTY:
-		var raw: Variant = cf.get_value("records", key, {})
-		if raw is Dictionary and not (raw as Dictionary).is_empty():
-			records[key] = _sane_record(raw)
+	for mode_key: String in CFG.MODE_ORDER:
+		for diff_key: String in CFG.DIFF_ORDER:
+			var key := CFG.record_key(mode_key, diff_key)
+			var raw: Variant = cf.get_value("records", key, {})
+			if raw is Dictionary and not (raw as Dictionary).is_empty():
+				records[key] = _sane_record(raw)
 
 
 ## Рекорды из версии без настроек — чтобы обновление не обнуляло таблицу.

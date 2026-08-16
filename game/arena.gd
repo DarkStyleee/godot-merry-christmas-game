@@ -77,12 +77,16 @@ class Flake:
 	var phase := 0.0
 
 
+const BALL_COLOR := Color("f2f7ff")
+const TRAIL_LEN := 10
+
 var sim := Sim.new()
 var active := false                ## идёт забег (в том числе на паузе)
 
 var _puffs: Array[Puff] = []
 var _pops: Array[Pop] = []
 var _flakes: Array[Flake] = []
+var _trail: Array[Vector2] = []    ## след шара, от старого к свежему
 var _squash := 0.0
 var _shake := 0.0
 var _flash := 0.0
@@ -108,6 +112,8 @@ func _ready() -> void:
 	sim.bounced.connect(_on_bounced)
 	sim.sobered.connect(_on_sobered)
 	sim.fell.connect(_on_fell)
+	sim.ball_bounced.connect(_on_ball_bounced)
+	sim.ball_lost.connect(_on_ball_lost)
 	sim.item_applied.connect(_on_item_applied)
 	sim.damaged.connect(_on_damaged)
 	sim.level_cleared.connect(_on_level_cleared)
@@ -115,11 +121,12 @@ func _ready() -> void:
 	_hud.sim = sim
 
 
-func start_run(diff_key: String) -> void:
-	sim.start(diff_key)
+func start_run(mode_key: String, diff_key: String) -> void:
+	sim.start(mode_key, diff_key)
 	active = true
 	_puffs.clear()
 	_pops.clear()
+	_trail.clear()
 	_squash = 0.0
 	_shake = 0.0
 	_flash = 0.0
@@ -137,6 +144,7 @@ func resume_endless() -> void:
 func clear_effects() -> void:
 	_puffs.clear()
 	_pops.clear()
+	_trail.clear()
 	_shake = 0.0
 	_flash = 0.0
 
@@ -172,6 +180,13 @@ func _process(delta: float) -> void:
 		if p.life <= 0.0:
 			_pops.remove_at(i)
 
+	if active and sim.ball != null:
+		_trail.append(Vector2(sim.ball.x, sim.ball.y))
+		if _trail.size() > TRAIL_LEN:
+			_trail.remove_at(0)
+	elif not _trail.is_empty():
+		_trail.clear()
+
 	_squash = maxf(0.0, _squash - delta * 6.0)
 	_shake = maxf(0.0, _shake - delta)
 	_flash = maxf(0.0, _flash - delta * 1.6)
@@ -203,6 +218,7 @@ func _draw() -> void:
 			_draw_item(it)
 		for s in sim.santas:
 			_draw_santa(s, off)
+		_draw_ball()
 		_draw_paddle(off)
 		_draw_effects()
 
@@ -226,27 +242,35 @@ func _draw_markers(g: float) -> void:
 		if s.escaping:
 			continue
 		var p := sim.predict(s, g)
-		if p == Vector2.INF:
-			continue
-		var a := clampf(1.15 - p.x / 2.4, 0.12, 0.9)
-		var col := Sim.nose_color(s.sober)
+		if p != Vector2.INF:
+			_draw_marker(p, Sim.nose_color(s.sober), Vector2(s.x, s.y))
 
-		# пунктирная окружность на линии палки: 13 штрихов через пропуск
-		var center := Vector2(p.y, CFG.PADDLE_Y)
-		var r := CFG.SANTA_RADIUS + 2.0
-		var seg := TAU / 13.0
-		for i in 13:
-			draw_arc(center, r, i * seg, i * seg + seg * 0.55, 4, Color(col, a), 2.0)
+	# Шару маркер нужнее всех: в режиме шара он единственный, кого нельзя ронять.
+	if sim.ball != null:
+		var pb := sim.predict(sim.ball, g)
+		if pb != Vector2.INF:
+			_draw_marker(pb, BALL_COLOR, Vector2(sim.ball.x, sim.ball.y))
 
-		# вертикальная нить от тела к маркеру
-		draw_line(Vector2(p.y, CFG.PADDLE_Y - CFG.SANTA_RADIUS), Vector2(p.y, maxf(0.0, s.y)),
-				Color(col, a * 0.28), 2.0)
 
-		# тело ещё за верхней границей — рисуем предупреждение
-		if s.y < 0.0:
-			draw_colored_polygon(PackedVector2Array([
-				Vector2(s.x - 10.0, 6.0), Vector2(s.x + 10.0, 6.0), Vector2(s.x, 22.0),
-			]), Color(Ink.GOLD, 0.9))
+func _draw_marker(p: Vector2, col: Color, body: Vector2) -> void:
+	var a := clampf(1.15 - p.x / 2.4, 0.12, 0.9)
+
+	# пунктирная окружность на линии палки: 13 штрихов через пропуск
+	var center := Vector2(p.y, CFG.PADDLE_Y)
+	var r := CFG.SANTA_RADIUS + 2.0
+	var seg := TAU / 13.0
+	for i in 13:
+		draw_arc(center, r, i * seg, i * seg + seg * 0.55, 4, Color(col, a), 2.0)
+
+	# вертикальная нить от тела к маркеру
+	draw_line(Vector2(p.y, CFG.PADDLE_Y - CFG.SANTA_RADIUS), Vector2(p.y, maxf(0.0, body.y)),
+			Color(col, a * 0.28), 2.0)
+
+	# тело ещё за верхней границей — рисуем предупреждение
+	if body.y < 0.0:
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(body.x - 10.0, 6.0), Vector2(body.x + 10.0, 6.0), Vector2(body.x, 22.0),
+		]), Color(Ink.GOLD, 0.9))
 
 
 func _draw_santa(s: Sim.Santa, off: Vector2) -> void:
@@ -273,6 +297,32 @@ func _draw_santa(s: Sim.Santa, off: Vector2) -> void:
 		draw_texture_rect_region(sheet, Rect2(-h / 2.0, -h / 2.0, h, h),
 				Rect2(f * cell, 0, cell, cell))
 	draw_set_transform(off)
+
+
+## Шар рисуется кодом, а не спрайтом: круг остаётся гладким на любом размере,
+## а свечение под ним — та же текстура, что подсвечивает тела.
+func _draw_ball() -> void:
+	var b := sim.ball
+	if b == null:
+		return
+
+	for i in _trail.size():
+		var k := float(i + 1) / TRAIL_LEN
+		draw_circle(_trail[i], CFG.SANTA_RADIUS * 0.8 * k, Color(BALL_COLOR, 0.13 * k))
+
+	var rr := CFG.SANTA_RADIUS * 2.1
+	draw_texture_rect(_glow, Rect2(b.x - rr, b.y - rr, rr * 2.0, rr * 2.0), false,
+			Color(BALL_COLOR, 0.38))
+
+	# Тёмный контур — и стиль тот же, что у спрайтов, и шар не путается с луной
+	# на фоне: она такого же размера и такая же круглая.
+	var c := Vector2(b.x, b.y)
+	draw_circle(c, CFG.SANTA_RADIUS + 2.0, Color("1b2540"))
+	draw_circle(c, CFG.SANTA_RADIUS, BALL_COLOR)
+	draw_circle(c + Vector2(-0.3, -0.34) * CFG.SANTA_RADIUS, CFG.SANTA_RADIUS * 0.3,
+			Color("ffffff"))
+	draw_circle(c + Vector2(0.26, 0.3) * CFG.SANTA_RADIUS, CFG.SANTA_RADIUS * 0.42,
+			Color("c3d3ec", 0.55))                   # тень снизу-справа: шар, а не блин
 
 
 func _draw_paddle(off: Vector2) -> void:
@@ -318,6 +368,19 @@ func _on_sobered(s: Sim.Santa, points: int) -> void:
 func _on_fell(x: float) -> void:
 	_add_puff(Vector2(x, CFG.ARENA_H - 6.0), 14, Color("ff8080"))
 	Audio.play("miss")
+
+
+func _on_ball_bounced(x: float, sweet: bool) -> void:
+	_squash = 1.0
+	_add_puff(Vector2(x, Sim.PLANE + CFG.SANTA_RADIUS), 10 if sweet else 6,
+			Color("ffe08a") if sweet else BALL_COLOR)
+	Audio.play("hit", 0.7 if sweet else 0.6)        # ниже икоты: шар, а не Дед Мороз
+
+
+func _on_ball_lost(x: float) -> void:
+	_trail.clear()
+	_add_puff(Vector2(x, CFG.ARENA_H - 6.0), 20, BALL_COLOR)
+	Audio.play("miss", 0.8)
 
 
 func _on_item_applied(kind: String, gained: bool, x: float) -> void:

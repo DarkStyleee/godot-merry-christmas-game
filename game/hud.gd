@@ -18,7 +18,7 @@ var _banner_life := 0.0
 
 
 func reset() -> void:
-	_record = Profile.best_score(sim.diff)
+	_record = Profile.best_score(CFG.record_key(sim.mode, sim.diff))
 	_banner_level = 0
 	_banner_life = 0.0
 
@@ -97,6 +97,12 @@ func _draw_hp() -> void:
 
 func _draw_buffs() -> void:
 	var y := 86.0
+	# Шар пропал не навсегда — без этой строки пауза перед его возвращением
+	# читается как поломка.
+	if sim.mode == "ball" and sim.ball == null:
+		Ink.text(self, Vector2(16, y), "шар вернётся через %.1fc" % maxf(sim.ball_wait, 0.0), 13,
+				Color(Ink.BLUE, 0.9), HORIZONTAL_ALIGNMENT_LEFT, true, true)
+		y += 18.0
 	y = _badge("шире", Color("57d07a"), sim.wide_until, y)
 	y = _badge("выше", Color("5aa8f2"), sim.high_until, y)
 	y = _badge("медленнее", Color("a97cf2"), sim.slow_until, y)

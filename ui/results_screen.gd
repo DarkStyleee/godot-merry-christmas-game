@@ -26,14 +26,18 @@ func _ready() -> void:
 
 func show_stats(stats: Dictionary, is_record: bool) -> void:
 	var victory: bool = stats["victory"]
+	var mode_key: String = stats.get("mode", "santa")
 	var label: String = CFG.preset(stats["diff"])["label"]
 
-	_title.text = "СТО УРОВНЕЙ" if victory else "ВСЕ УПАЛИ"
+	if victory:
+		_title.text = "СТО УРОВНЕЙ"
+	else:
+		_title.text = "ШАР РАЗБИЛСЯ" if mode_key == "ball" else "ВСЕ УПАЛИ"
 	_title.add_theme_color_override("font_color", Ink.GOLD if victory else Ink.RED)
 	_subtitle.text = ("Ночь выстояна до последнего уровня. Дальше — только счёт." if victory
 			else "Остановились на уровне %d из %d" % [stats["level"], CFG.LEVEL_MAX])
 
-	var best := Profile.best_score(stats["diff"])
+	var best := Profile.best_score(CFG.record_key(mode_key, stats["diff"]))
 	if is_record:
 		_record_line.text = "НОВЫЙ РЕКОРД"
 		_record_line.add_theme_color_override("font_color", Ink.GREEN)
@@ -54,12 +58,16 @@ func _fill(stats: Dictionary) -> void:
 
 	var bounces: int = stats["bounces"]
 	var sweet_share := 0 if bounces == 0 else roundi(100.0 * float(stats["sweet_hits"]) / bounces)
+	var mode_key: String = stats.get("mode", "santa")
+	_row("режим", str(CFG.mode(mode_key)["label"]), Ink.DIM)
 	_row("сложность", str(CFG.preset(stats["diff"])["label"]), Ink.DIM)
 	_row("счёт", str(stats["score"]), Ink.GOLD)
 	_row("уровень", "%d из %d" % [stats["level"], CFG.LEVEL_MAX], Ink.TEXT)
 	_row("отрезвлено", str(stats["sobered"]), Ink.TEXT)
 	_row("ударов", "%d   ·   бантом %d%%" % [bounces, sweet_share], Ink.TEXT)
 	_row("лучшая серия", str(stats["streak"]), Ink.TEXT)
+	if mode_key == "ball":
+		_row("шар уронили", str(stats.get("balls_lost", 0)), Ink.RED)
 	_row("упало мимо палки", str(stats["misses"]), Ink.DIM)
 	_row("подобрано хорошего", "%d   ·   плохого %d" % [stats["items_good"], stats["items_bad"]], Ink.DIM)
 	_row("продержались", Ink.mmss(stats["time"]), Ink.DIM)

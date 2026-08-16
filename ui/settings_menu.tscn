@@ -90,7 +90,7 @@ text = "90%"
 horizontal_alignment = 2
 
 [node name="MuteLabel" type="Label" parent="Center/Panel/Box/Grid"]
-text = "Тишина"
+text = "Отключить звук"
 tooltip_text = "Глушит и музыку, и звуки"
 
 [node name="Mute" type="CheckButton" parent="Center/Panel/Box/Grid"]

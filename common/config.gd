@@ -79,6 +79,12 @@ const SLOW_FACTOR := 0.7
 const BOTTLE_RADIUS := 200.0       # радиус деморализации от бутылки
 const BOTTLE_SOBER_LOSS := 2
 
+# ---- шар (режим «Новогодний шар») ----
+# Шар живёт по физике тела: тот же радиус, та же кривая отскока, та же
+# гравитация уровня. Отдельных чисел ему нужно ровно одно — пауза перед
+# возвращением после падения.
+const BALL_RESPAWN := 1.2          # с
+
 # ---- прочее ----
 const GRACE_AFTER_LOSS := 0.8      # с, окно неуязвимости после потери HP
 const SCORE_BOUNCE := 10
@@ -105,6 +111,23 @@ const MAX_MULT := 5
 # мясорубку с заранее известным исходом.
 const LEVEL_MAX := 100
 const LEVEL_HEAL_EVERY := 5        # каждые N уровней +1 HP, но не выше hp_max
+
+# ---- Режимы ----
+# Общего у них всё, кроме двух правил: кто стоит HP и есть ли на поле шар.
+# Уровни, квоты, предметы и кривые сложности одни и те же.
+const MODE_ORDER := ["santa", "ball"]
+const MODES := {
+	"santa": {
+		"label": "Пьяный Дед Мороз",
+		"short": "деды",
+		"hint": "Ни один не должен упасть: уронил — минус шапка",
+	},
+	"ball": {
+		"label": "Новогодний шар",
+		"short": "шар",
+		"hint": "Шар ронять нельзя, Дедов Морозов — можно. Но они дают очки",
+	},
+}
 
 # ---- Пресеты сложности ----
 const DIFF_ORDER := ["casual", "normal", "hardcore"]
@@ -147,6 +170,16 @@ const DIFFICULTY := {
 
 static func preset(diff_key: String) -> Dictionary:
 	return DIFFICULTY.get(diff_key, DIFFICULTY["normal"])
+
+
+static func mode(mode_key: String) -> Dictionary:
+	return MODES.get(mode_key, MODES["santa"])
+
+
+## Ключ рекорда в профиле. Основной режим держит старые ключи без префикса —
+## иначе таблица рекордов обнулилась бы при обновлении игры.
+static func record_key(mode_key: String, diff_key: String) -> String:
+	return diff_key if mode_key == "santa" else "%s:%s" % [mode_key, diff_key]
 
 
 static func gravity_for(p: Dictionary, level: int) -> float:

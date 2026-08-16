@@ -7,6 +7,10 @@ extends RefCounted
 ## Этим же прогоном начинается сборка (tools/build.ps1): падает проверка —
 ## exe не собирается. Проверка гоняет ту же Sim, что и игра, без единой ноды.
 
+## Фора шару при выборе цели, с. Ронять его дороже, чем упустить Деда Мороза,
+## поэтому бот идёт к нему, даже когда тело приземляется чуть раньше.
+const BALL_BIAS := 0.25
+
 ## Простейший бот: целится в тело, которое приземлится первым. Живого игрока не
 ## изображает (для этого есть tools/sim.js с моделью моторики) — его дело
 ## показать, что забег вообще живёт и физика не уходит в NaN.
@@ -23,6 +27,13 @@ static func play(sim: Sim, seconds: float) -> void:
 static func aim(sim: Sim) -> void:
 	var g := sim.gravity_now()
 	var best_t := INF
+
+	if sim.ball != null:
+		var pb := sim.predict(sim.ball, g)
+		if pb != Vector2.INF:
+			best_t = pb.x - BALL_BIAS
+			sim.aim_x = pb.y
+
 	for s in sim.santas:
 		if s.escaping:
 			continue
@@ -37,18 +48,21 @@ static func aim(sim: Sim) -> void:
 static func run_all(with_curve := false) -> void:
 	check_math()
 	check_levels()
+	check_ball()
 	for key: String in CFG.DIFF_ORDER:
 		if with_curve:
 			print(curve_table(key))
-		print(bot_report(key, 180.0))
+		for mode_key: String in CFG.MODE_ORDER:
+			print(bot_report(mode_key, key, 180.0))
 
 
-static func bot_report(diff_key: String, seconds: float) -> String:
+static func bot_report(mode_key: String, diff_key: String, seconds: float) -> String:
 	var sim := Sim.new()
-	sim.start(diff_key)
+	sim.start(mode_key, diff_key)
 	play(sim, seconds)
-	return "CHECK %-9s t=%5.1f level=%-3d score=%-6d hp=%d sobered=%-3d misses=%d" % [
-		diff_key, sim.t, sim.level, sim.score, sim.hp, sim.sobered_total, sim.misses,
+	return "CHECK %-5s %-9s t=%5.1f level=%-3d score=%-6d hp=%d sobered=%-3d misses=%-3d balls=%d" % [
+		mode_key, diff_key, sim.t, sim.level, sim.score, sim.hp, sim.sobered_total,
+		sim.misses, sim.balls_lost,
 	]
 
 
@@ -70,9 +84,49 @@ static func cycle_time(g: float) -> float:
 	return 2.0 * sqrt(2.0 * CFG.BOUNCE[0][2] * CFG.ARENA_H / g)
 
 
+## Режим «Новогодний шар» держится на двух правилах, и оба ломаются тихо:
+## упавший Дед Мороз перестаёт быть бесплатным, а шар начинает проваливаться
+## сквозь палку. Проверяем оба.
+static func check_ball() -> void:
+	var sim := Sim.new()
+	sim.start("ball", "normal")
+	var hp_before := sim.hp
+
+	var s := Sim.Santa.new()
+	s.x = 100.0
+	s.y = CFG.ARENA_H + CFG.SANTA_RADIUS * 2.0
+	sim.santas.append(s)
+	sim.step(1.0 / 120.0)
+	assert(sim.misses == 1, "упавшее тело не засчиталось")
+	assert(sim.hp == hp_before, "в режиме шара упавший Дед Мороз отнял HP")
+
+	# То же тело в основном режиме обязано стоить HP — иначе правило потерялось.
+	var santa_sim := Sim.new()
+	santa_sim.start("santa", "normal")
+	var s2 := Sim.Santa.new()
+	s2.x = 100.0
+	s2.y = CFG.ARENA_H + CFG.SANTA_RADIUS * 2.0
+	santa_sim.santas.append(s2)
+	santa_sim.step(1.0 / 120.0)
+	assert(santa_sim.hp == int(santa_sim.preset["hp_start"]) - 1,
+			"в основном режиме упавший Дед Мороз перестал стоить HP")
+
+	# Палка всегда точно под шаром: при таком ведении он не теряется ни разу.
+	var perfect := Sim.new()
+	perfect.start("ball", "casual")
+	var dt := 1.0 / 120.0
+	for i in int(120.0 / dt):
+		if perfect.ball != null:
+			perfect.aim_x = perfect.ball.x
+		perfect.step(dt)
+	assert(perfect.balls_lost == 0, "шар проваливается сквозь палку")
+	assert(perfect.running, "идеальное ведение шара всё равно кончилось поражением")
+	assert(perfect.ball != null, "шар не вернулся после падения")
+
+
 static func check_math() -> void:
 	var sim := Sim.new()
-	sim.start("normal")
+	sim.start("santa", "normal")
 
 	assert(is_equal_approx(sim.bounce_height(0.0), 0.80))
 	assert(is_equal_approx(sim.bounce_height(0.15), 0.80))

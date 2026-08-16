@@ -24,8 +24,8 @@ func _ready() -> void:
 
 
 func show_run(sim: Sim) -> void:
-	_info.text = "%s   ·   уровень %d   ·   счёт %d" % [
-		sim.preset["label"], sim.level, sim.score,
+	_info.text = "%s   ·   %s   ·   уровень %d   ·   счёт %d" % [
+		CFG.mode(sim.mode)["label"], sim.preset["label"], sim.level, sim.score,
 	]
 
 

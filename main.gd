@@ -99,11 +99,11 @@ func cancel() -> void:
 		Screen.PAUSE: _resume()
 		Screen.SETTINGS: _close_settings()
 		Screen.RESULTS: _to_menu()
-		Screen.MENU: _menu.show_root()
+		Screen.MENU: _menu.back()
 
 
-func start_run(diff_key: String) -> void:
-	_arena.start_run(diff_key)
+func start_run(mode_key: String, diff_key: String) -> void:
+	_arena.start_run(mode_key, diff_key)
 	_set_screen(Screen.PLAY)
 
 
@@ -113,7 +113,7 @@ func open_settings() -> void:
 
 
 func _restart() -> void:
-	start_run(_arena.sim.diff)
+	start_run(_arena.sim.mode, _arena.sim.diff)
 
 
 func _continue_endless() -> void:
@@ -154,8 +154,8 @@ func _on_run_finished(stats: Dictionary) -> void:
 
 ## Режимы для сборки и разработки, в обычной игре не участвуют:
 ##   godot --headless -- --check              формулы, кривые уровней, бот
-##   godot -- --shot out.png --screen menu|difficulty|settings|play|pause|over|win
-##                           [--diff normal] [--ff 45]
+##   godot -- --shot out.png --screen menu|mode|difficulty|settings|play|pause|over|win
+##                           [--mode santa|ball] [--diff normal] [--ff 45]
 func _handle_cmdline() -> void:
 	var args := OS.get_cmdline_user_args()
 
@@ -173,32 +173,37 @@ func _handle_cmdline() -> void:
 	var diff := _arg(args, "--diff")
 	if not CFG.DIFFICULTY.has(diff):
 		diff = "normal"
+	var mode := _arg(args, "--mode")
+	if not CFG.MODES.has(mode):
+		mode = "santa"
 	var ff := _arg(args, "--ff")
 	var seconds := float(ff) if ff.is_valid_float() else 30.0
 
 	match _arg(args, "--screen"):
+		"mode":
+			_menu.show_modes()
 		"difficulty":
-			_menu.show_difficulty()
+			_menu.show_difficulty(mode)
 		"settings":
 			open_settings()
 		"play":
-			start_run(diff)
+			start_run(mode, diff)
 			SelfCheck.play(_arena.sim, seconds)
 			_arena.clear_effects()
 		"pause":
-			start_run(diff)
+			start_run(mode, diff)
 			SelfCheck.play(_arena.sim, seconds)
 			_arena.clear_effects()
 			_pause_run()
 		"over":
-			start_run(diff)
+			start_run(mode, diff)
 			SelfCheck.play(_arena.sim, seconds)
 			_arena.clear_effects()
 			while _arena.sim.running:
 				_arena.sim.grace_until = -1.0
 				_arena.sim.lose_hp()
 		"win":
-			start_run(diff)
+			start_run(mode, diff)
 			SelfCheck.play(_arena.sim, seconds)
 			_arena.clear_effects()
 			var stats := _arena.sim.stats()
@@ -222,7 +227,7 @@ func _check_flow() -> void:
 	assert(_screen == Screen.MENU, "старт не с меню")
 	assert(not tree.paused)
 
-	start_run("normal")
+	start_run("santa", "normal")
 	assert(_screen == Screen.PLAY)
 	assert(_arena.active and _arena.sim.running and _arena.sim.level == 1)
 	assert(not tree.paused, "забег начался на паузе")
@@ -257,6 +262,16 @@ func _check_flow() -> void:
 	cancel()
 	assert(_screen == Screen.MENU)
 	assert(not _arena.active, "вышли в меню, а арена жива")
+
+	# Второй режим доходит до арены своим ключом рекорда и своей ареной с шаром.
+	start_run("ball", "normal")
+	assert(_arena.sim.mode == "ball")
+	while _arena.sim.running:
+		_arena.sim.grace_until = -1.0
+		_arena.sim.lose_hp()
+	assert(Profile.records.has("normal") and Profile.records.has("ball:normal"),
+			"режимы пишут рекорд в одну строку")
+	cancel()
 	print("CHECK flow ok")
 
 

@@ -7,10 +7,17 @@ extends RefCounted
 ## самопроверки (selfcheck.gd) гоняет ту же симуляцию без единой ноды.
 ##
 ## Единственный вход снаружи — `aim_x` (куда игрок ведёт палку) и `step(dt)`.
+##
+## Режима два, и различаются они ровно двумя правилами. «santa»: упавший Дед
+## Мороз стоит HP, шара на поле нет. «ball»: упавший Дед Мороз не стоит ничего,
+## зато на поле есть шар, и HP отнимает он. Всё остальное — уровни, квоты,
+## предметы, кривые сложности — у режимов общее.
 
 signal bounced(santa: Santa, sweet: bool)          ## удар по палке
 signal sobered(santa: Santa, points: int)          ## Дед Мороз протрезвел и улетает
 signal fell(x: float)                              ## тело ушло за нижнюю грань
+signal ball_bounced(x: float, sweet: bool)         ## удар по шару
+signal ball_lost(x: float)                         ## шар ушёл за нижнюю грань
 signal item_applied(kind: String, gained: bool, x: float)
 signal damaged(hp_left: int)                       ## потеряно HP
 signal level_cleared(level: int, healed: bool)     ## уровень взят
@@ -46,6 +53,7 @@ class Item:
 
 
 # ---- забег ----
+var mode := "santa"
 var diff := "normal"
 var preset: Dictionary = CFG.DIFFICULTY["normal"]
 var running := false
@@ -62,6 +70,11 @@ var streak := 0
 # ---- поле ----
 var santas: Array[Santa] = []
 var items: Array[Item] = []
+
+## Шар режима «Новогодний шар». null — упал и ещё не вернулся. Тип тот же, что
+## у тела: тогда предсказание точки приземления и маркер работают без правок.
+var ball: Santa = null
+var ball_wait := 0.0
 
 var aim_x := CFG.ARENA_W / 2.0     ## куда игрок ведёт палку; ставится снаружи
 var paddle_x := CFG.ARENA_W / 2.0
@@ -90,11 +103,13 @@ var misses := 0
 var items_good := 0
 var items_bad := 0
 var max_streak := 0
+var balls_lost := 0
 
 var _pv_hist: Array[float] = []
 
 
-func start(diff_key: String) -> void:
+func start(mode_key: String, diff_key: String) -> void:
+	mode = mode_key if CFG.MODES.has(mode_key) else "santa"
 	diff = diff_key
 	preset = CFG.preset(diff_key)
 	running = true
@@ -110,6 +125,8 @@ func start(diff_key: String) -> void:
 
 	santas.clear()
 	items.clear()
+	ball = null
+	ball_wait = CFG.BALL_RESPAWN      # первый шар тоже влетает не сразу
 	paddle_x = CFG.ARENA_W / 2.0
 	aim_x = paddle_x
 	paddle_vx = 0.0
@@ -135,6 +152,7 @@ func start(diff_key: String) -> void:
 	items_good = 0
 	items_bad = 0
 	max_streak = 0
+	balls_lost = 0
 
 
 ## Продолжить забег после взятого сотого уровня — уже без потолка.
@@ -160,6 +178,7 @@ func half_width_now() -> float:
 
 func stats() -> Dictionary:
 	return {
+		"mode": mode,
 		"diff": diff,
 		"level": level,
 		"score": score,
@@ -173,6 +192,7 @@ func stats() -> Dictionary:
 		"items_good": items_good,
 		"items_bad": items_bad,
 		"streak": max_streak,
+		"balls_lost": balls_lost,
 		"victory": outcome == Outcome.VICTORY,
 	}
 
@@ -198,6 +218,9 @@ func step(dt: float) -> void:
 	for v in _pv_hist:
 		sum += v
 	paddle_vx = clampf(sum / _pv_hist.size(), -CFG.SPEED_CLAMP, CFG.SPEED_CLAMP)
+
+	if mode == "ball":
+		_step_ball(dt, g, half_w)
 
 	for i in range(santas.size() - 1, -1, -1):
 		var s := santas[i]
@@ -239,7 +262,10 @@ func step(dt: float) -> void:
 			mult = 1
 			misses += 1
 			fell.emit(s.x)
-			lose_hp()
+			# В режиме шара упавший Дед Мороз стоит только серии: за ним
+			# гонятся ради очков, а не из страха.
+			if mode == "santa":
+				lose_hp()
 
 	for i in range(items.size() - 1, -1, -1):
 		var it := items[i]
@@ -294,7 +320,57 @@ func _add_item(kind: String, bad: bool) -> void:
 	items.append(it)
 
 
-func _bounce(s: Santa, g: float, half_w: float) -> void:
+## Шар идёт по физике тела: та же гравитация уровня, те же стены, та же кривая
+## отскока. Отличий два — трезветь ему нечем, и падение стоит HP. Из общей
+## кривой само собой выходит главное правило режима: точный удар бантом
+## подбрасывает шар почти на всю арену, то есть покупает время на Дедов
+## Морозов, а смазанный по краю возвращает его через секунду.
+func _step_ball(dt: float, g: float, half_w: float) -> void:
+	if ball == null:
+		ball_wait -= dt
+		if ball_wait <= 0.0:
+			ball = Santa.new()
+			ball.x = paddle_x                 # возвращается над палкой, не в засаду
+			ball.y = -CFG.SANTA_RADIUS
+			ball.phase = randf() * TAU
+		return
+
+	var prev_y := ball.y
+	ball.vy += g * dt
+	ball.x += (ball.vx + CFG.DRIFT_AMP * sin(t * CFG.DRIFT_FREQ + ball.phase)) * dt
+	ball.y += ball.vy * dt
+	ball.rot += ball.spin * dt
+
+	if ball.x < CFG.SANTA_RADIUS:
+		ball.x = CFG.SANTA_RADIUS
+		ball.vx = -ball.vx * CFG.WALL_DAMP
+	if ball.x > CFG.ARENA_W - CFG.SANTA_RADIUS:
+		ball.x = CFG.ARENA_W - CFG.SANTA_RADIUS
+		ball.vx = -ball.vx * CFG.WALL_DAMP
+	if ball.y < CFG.SANTA_RADIUS and ball.vy < 0.0:
+		ball.y = CFG.SANTA_RADIUS
+		ball.vy = -ball.vy * CFG.WALL_DAMP
+
+	if ball.vy > 0.0 and prev_y <= PLANE and ball.y >= PLANE and absf(ball.x - paddle_x) <= half_w:
+		var d := _kick(ball, g, half_w)
+		ball_bounced.emit(ball.x, d <= CFG.SWEET_ZONE)
+		return
+
+	if ball.y - CFG.SANTA_RADIUS > CFG.ARENA_H:
+		balls_lost += 1
+		ball_lost.emit(ball.x)
+		ball = null
+		ball_wait = CFG.BALL_RESPAWN
+		streak = 0
+		mult = 1
+		lose_hp()
+
+
+## Удар палкой: высота по кривой, снос по смещению от центра, закрутка.
+## Возвращает |смещение| в долях полуширины — по нему считается сладкая зона.
+## Общий для тел и шара: физика удара у них обязана совпадать до цифры, иначе
+## наигранное в одном режиме перестаёт работать в другом.
+func _kick(s: Santa, g: float, half_w: float) -> float:
 	var off := s.x - paddle_x
 	var d := minf(1.0, absf(off) / half_w)
 	var h := bounce_height(d)
@@ -307,7 +383,11 @@ func _bounce(s: Santa, g: float, half_w: float) -> void:
 	s.vx = clampf(signf(off) * CFG.VX_BASE * d + paddle_vx * CFG.VX_FROM_PADDLE,
 			-CFG.VX_MAX, CFG.VX_MAX)
 	s.spin = clampf(s.vx / 90.0, -3.2, 3.2)
+	return d
 
+
+func _bounce(s: Santa, g: float, half_w: float) -> void:
+	var d := _kick(s, g, half_w)
 	var sweet := d <= CFG.SWEET_ZONE
 	var gain := CFG.SOBER_GAIN_SWEET if sweet else CFG.SOBER_GAIN_NORMAL
 	if snack > 0:
