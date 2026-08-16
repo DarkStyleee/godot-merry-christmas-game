@@ -1,0 +1,5 @@
+records.js
+*.tmp
+build/
+godot/.godot/
+godot/android/
