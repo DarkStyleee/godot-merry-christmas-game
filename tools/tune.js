@@ -8,7 +8,7 @@
    Запуск:  node tools/tune.js [runs]
    ========================================================================== */
 
-const CONFIG = require('../config.js');
+const CONFIG = require('./config.js');
 const { run } = require('./sim.js');
 
 // tMid — целевая медиана забега для скилла average, с

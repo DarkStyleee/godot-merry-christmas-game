@@ -1,0 +1,33 @@
+; Merry Christmas — аркада-жонглирование Дедами Морозами.
+; Godot 4.7. Сборка: tools/build.ps1 -> build/MerryChristmas.exe
+
+config_version=5
+
+[application]
+
+config/name="Merry Christmas"
+config/description="Аркада-жонглирование пьяными Дедами Морозами"
+run/main_scene="res://main.tscn"
+config/icon="res://icon.png"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[display]
+
+window/size/viewport_width=900
+window/size/viewport_height=600
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[physics]
+
+; Физика игры — 120 Гц, как в браузерной версии: на 60 Гц тело успевает
+; проскочить сквозь палку между кадрами при высокой гравитации.
+common/physics_ticks_per_second=120
+
+[rendering]
+
+; gl_compatibility, а не Forward+: exe уезжает на чужие машины, где Vulkan
+; может отсутствовать. Для 2D разницы в картинке нет.
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.043, 0.063, 0.125, 1)

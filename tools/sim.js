@@ -7,7 +7,7 @@ const TRACE = !!process.env.TRACE;
    Запуск:  node tools/sim.js [runs]
    ========================================================================== */
 
-const CONFIG = require('../config.js');
+const CONFIG = require('./config.js');
 
 // ---------------------------------------------------------------- ГПСЧ ----
 function mulberry32(a) {
