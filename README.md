@@ -139,10 +139,11 @@ godot --headless --path . -- --check [--curve]
     поток экранов и 180 секунд игры ботом на каждой паре «режим и сложность».
     С --curve печатает таблицу кривых. Этим же прогоном начинается сборка.
 
-godot --path . -- --shot кадр.png --screen menu [--mode ball] [--diff normal] [--ff 45]
+godot --path . -- --shot кадр.png --screen menu [--mode ball] [--diff normal] [--ff 45] [--fx]
     снимает кадр экрана. Экраны: menu, mode, difficulty, settings, play, pause,
     over, win. Для игровых бот сначала отматывает --ff секунд забега.
-    Режим задаётся --mode santa|ball.
+    Режим задаётся --mode santa|ball. С --fx в кадр попадают частицы и цифры:
+    бот доигрывает полсекунды после того, как накопленное за отмотку стёрто.
 ```
 
 Оба режима не трогают профиль игрока.

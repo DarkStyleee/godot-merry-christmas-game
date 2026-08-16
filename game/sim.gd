@@ -13,7 +13,7 @@ extends RefCounted
 ## зато на поле есть шар, и HP отнимает он. Всё остальное — уровни, квоты,
 ## предметы, кривые сложности — у режимов общее.
 
-signal bounced(santa: Santa, sweet: bool)          ## удар по палке
+signal bounced(santa: Santa, sweet: bool, points: int)   ## удар по палке
 signal sobered(santa: Santa, points: int)          ## Дед Мороз протрезвел и улетает
 signal fell(x: float)                              ## тело ушло за нижнюю грань
 signal ball_bounced(x: float, sweet: bool)         ## удар по шару
@@ -403,8 +403,9 @@ func _bounce(s: Santa, g: float, half_w: float) -> void:
 	streak += 1
 	max_streak = maxi(max_streak, streak)
 	mult = mini(CFG.MAX_MULT, 1 + streak / CFG.COMBO_STEP)
-	score += CFG.SCORE_BOUNCE * mult
-	bounced.emit(s, sweet)
+	var hit_points := CFG.SCORE_BOUNCE * mult
+	score += hit_points
+	bounced.emit(s, sweet, hit_points)
 
 	if s.sober >= CFG.SOBER_THRESHOLD:
 		s.escaping = true

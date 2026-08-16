@@ -155,7 +155,7 @@ func _on_run_finished(stats: Dictionary) -> void:
 ## Режимы для сборки и разработки, в обычной игре не участвуют:
 ##   godot --headless -- --check              формулы, кривые уровней, бот
 ##   godot -- --shot out.png --screen menu|mode|difficulty|settings|play|pause|over|win
-##                           [--mode santa|ball] [--diff normal] [--ff 45]
+##                           [--mode santa|ball] [--diff normal] [--ff 45] [--fx]
 func _handle_cmdline() -> void:
 	var args := OS.get_cmdline_user_args()
 
@@ -178,6 +178,7 @@ func _handle_cmdline() -> void:
 		mode = "santa"
 	var ff := _arg(args, "--ff")
 	var seconds := float(ff) if ff.is_valid_float() else 30.0
+	var fx := args.has("--fx")
 
 	match _arg(args, "--screen"):
 		"mode":
@@ -187,25 +188,17 @@ func _handle_cmdline() -> void:
 		"settings":
 			open_settings()
 		"play":
-			start_run(mode, diff)
-			SelfCheck.play(_arena.sim, seconds)
-			_arena.clear_effects()
+			_fast_forward(mode, diff, seconds, fx)
 		"pause":
-			start_run(mode, diff)
-			SelfCheck.play(_arena.sim, seconds)
-			_arena.clear_effects()
+			_fast_forward(mode, diff, seconds, fx)
 			_pause_run()
 		"over":
-			start_run(mode, diff)
-			SelfCheck.play(_arena.sim, seconds)
-			_arena.clear_effects()
+			_fast_forward(mode, diff, seconds, fx)
 			while _arena.sim.running:
 				_arena.sim.grace_until = -1.0
 				_arena.sim.lose_hp()
 		"win":
-			start_run(mode, diff)
-			SelfCheck.play(_arena.sim, seconds)
-			_arena.clear_effects()
+			_fast_forward(mode, diff, seconds, fx)
 			var stats := _arena.sim.stats()
 			stats["level"] = CFG.LEVEL_MAX
 			stats["victory"] = true
@@ -216,6 +209,18 @@ func _handle_cmdline() -> void:
 			pass
 
 	await _shoot(shot)
+
+
+## Отматывает забег ботом до нужного места. Частицы и цифры за отмотанную минуту
+## копятся все разом, поэтому по умолчанию они стираются. С --fx бот доигрывает
+## ещё полсекунды после очистки: тогда в кадр попадают только свежие эффекты, а
+## иначе их вообще не снять.
+func _fast_forward(mode: String, diff: String, seconds: float, fx: bool) -> void:
+	start_run(mode, diff)
+	SelfCheck.play(_arena.sim, seconds)
+	_arena.clear_effects()
+	if fx:
+		SelfCheck.play(_arena.sim, 0.5)
 
 
 ## Поток экранов целиком, тем же путём, каким по ним ходит игрок: Esc из забега

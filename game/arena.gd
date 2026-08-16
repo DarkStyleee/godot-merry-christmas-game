@@ -42,6 +42,19 @@ const ITEM_TEX := {
 	"bottle": "item_bottle",
 }
 
+## Всплывающая цифра награды: [до скольки очков, цвет, кегль, сколько живёт].
+## Десятка за обычный удар должна быть еле заметна, полтысячи за отрезвление на
+## пятикратном множителе — бросаться в глаза. Шкала общая для ударов и
+## отрезвления, поэтому цвет читается как величина, а не как повод.
+const POP_TIERS := [
+	[10, Ink.DIM, 14, 0.5],
+	[30, Ink.TEXT, 15, 0.6],
+	[50, Ink.BLUE, 17, 0.7],
+	[100, Ink.GREEN, 19, 0.8],
+	[250, Ink.GOLD, 22, 0.9],
+	[INF, Ink.ORANGE, 26, 1.1],
+]
+
 ## kind -> [подпись, цвет]
 const ITEM_POP := {
 	"brine": ["+1 HP", Ink.GREEN],
@@ -67,6 +80,7 @@ class Pop:
 	var text := ""
 	var color := Color.WHITE
 	var life := 0.0
+	var size := 17
 
 
 class Flake:
@@ -345,21 +359,24 @@ func _draw_effects() -> void:
 	for p in _puffs:
 		draw_circle(p.pos, p.r, Color(p.color, clampf(p.life * 1.6, 0.0, 1.0)))
 	for p in _pops:
-		Ink.text(self, p.pos, p.text, 17, Color(p.color, clampf(p.life * 1.3, 0.0, 1.0)),
+		Ink.text(self, p.pos, p.text, p.size, Color(p.color, clampf(p.life * 1.3, 0.0, 1.0)),
 				HORIZONTAL_ALIGNMENT_CENTER, true)
 
 
 # ============================================================= события ====
 
-func _on_bounced(s: Sim.Santa, sweet: bool) -> void:
+func _on_bounced(s: Sim.Santa, sweet: bool, points: int) -> void:
 	_squash = 1.0
+	# Отрезвляющий удар даёт сразу две цифры: за удар и за отрезвление. Разводим
+	# их по высоте, иначе они лягут друг на друга.
+	_add_score_pop(Vector2(s.x, s.y - 30.0), points)
 	_add_puff(Vector2(s.x, Sim.PLANE + CFG.SANTA_RADIUS), 12 if sweet else 7,
 			Color("ffe08a") if sweet else Color("dbe9ff"))
 	Audio.play("hit", 0.8 + 0.16 * s.sober)         # икота: чем трезвее, тем выше тон
 
 
 func _on_sobered(s: Sim.Santa, points: int) -> void:
-	_add_pop(Vector2(s.x, s.y - 40.0), "+%d" % points, Ink.GREEN)
+	_add_score_pop(Vector2(s.x, s.y - 68.0), points)
 	_add_puff(Vector2(s.x, s.y), 16, Ink.GREEN)
 	Audio.play("sober")
 
@@ -413,13 +430,22 @@ func _on_finished(_victory: bool) -> void:
 	run_finished.emit(sim.stats())
 
 
-func _add_pop(pos: Vector2, text: String, color: Color) -> void:
+func _add_pop(pos: Vector2, text: String, color: Color, size := 17, life := 0.9) -> void:
 	var p := Pop.new()
 	p.pos = pos
 	p.text = text
 	p.color = color
-	p.life = 0.9
+	p.size = size
+	p.life = life
 	_pops.append(p)
+
+
+## Цифра награды по шкале POP_TIERS — за удар и за отрезвление одинаково.
+func _add_score_pop(pos: Vector2, points: int) -> void:
+	for tier in POP_TIERS:
+		if points <= float(tier[0]):
+			_add_pop(pos, "+%d" % points, tier[1], tier[2], tier[3])
+			return
 
 
 func _add_puff(pos: Vector2, n: int, color: Color) -> void:
