@@ -1,0 +1,88 @@
+# Релиз по тегу: собирает тот же exe, что и tools\build.ps1 локально, и кладёт
+# его в релиз на GitHub. Скрипт сборки один на оба случая — иначе CI однажды
+# начнёт собирать не то, что собирает разработчик.
+#
+#   git tag v1.1 && git push origin v1.1
+#
+# Запуск руками (workflow_dispatch) собирает то же самое, но релиз не создаёт:
+# exe остаётся артефактом прогона. Так проверяется сборка, когда публиковать
+# ещё нечего.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # нужно, чтобы gh release create мог писать в репозиторий
+
+env:
+  GODOT_VERSION: 4.7.1-stable
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Шаблоны экспорта весят под гигабайт и меняются только вместе с версией
+      # движка — качать их на каждый релиз незачем.
+      - name: Кэш шаблонов экспорта
+        id: templates
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Roaming/Godot/export_templates
+          key: godot-templates-${{ env.GODOT_VERSION }}
+
+      - name: Godot и шаблоны
+        shell: pwsh
+        run: |
+          $v = $env:GODOT_VERSION
+          $base = "https://github.com/godotengine/godot/releases/download/$v"
+          Invoke-WebRequest "$base/Godot_v${v}_win64.exe.zip" -OutFile godot.zip
+          Expand-Archive godot.zip -DestinationPath godot
+          if ("${{ steps.templates.outputs.cache-hit }}" -ne "true") {
+            Invoke-WebRequest "$base/Godot_v${v}_export_templates.tpz" -OutFile templates.zip
+            Expand-Archive templates.zip -DestinationPath tpz
+            # Godot ищет шаблоны в папке, где версия записана через точку: 4.7.1.stable
+            $dest = "$env:APPDATA\Godot\export_templates\$($v -replace '-', '.')"
+            New-Item -ItemType Directory -Force $dest | Out-Null
+            Move-Item tpz\templates\* $dest
+          }
+
+      # Версия из тега попадает в меню игры. При ручном запуске тега нет, и
+      # project.godot остаётся нетронутым.
+      - name: Версия из тега
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          (Get-Content project.godot -Raw) -replace 'config/version="[^"]*"', "config/version=`"$v`"" |
+            Set-Content project.godot -Encoding utf8 -NoNewline
+
+      # На чистой машине .godot/ нет: он в .gitignore. Без импортированных
+      # ассетов не пройдёт даже самопроверка.
+      - name: Импорт ассетов
+        shell: pwsh
+        run: |
+          & ".\godot\Godot_v$($env:GODOT_VERSION)_win64_console.exe" --headless --path . --import
+
+      - name: Сборка
+        shell: pwsh
+        env:
+          GODOT: ${{ github.workspace }}\godot\Godot_v4.7.1-stable_win64_console.exe
+        run: .\tools\build.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MerryChristmas
+          path: build/MerryChristmas.exe
+
+      - name: Релиз
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ github.ref_name }} build/MerryChristmas.exe --generate-notes
