@@ -3,10 +3,13 @@
 Постобработка сгенерированных ассетов:
   magenta -> альфа, подавление фиолетовой каймы, обрезка по содержимому, ресайз.
 
-Запуск:  python tools/postprocess.py
+Запуск:  python tools/postprocess.py [имя ...]
 Вход:    assets/raw/*.png   Выход: assets/*.png
+
+Без аргументов пересобирает всё, с именами — только их: python tools/postprocess.py item_coal
 """
 import os
+import sys
 import numpy as np
 from PIL import Image
 
@@ -58,6 +61,13 @@ def key_out(img):
     return Image.fromarray(out, "RGBA")
 
 
+def has_alpha(img):
+    """Исходник уже с прозрачностью: хромакеить нечего, иначе фон станет чёрным."""
+    if img.mode not in ("RGBA", "LA", "P"):
+        return False
+    return np.asarray(img.convert("RGBA"))[..., 3].min() < 250
+
+
 def trim(img, pad=2):
     a = np.asarray(img)[..., 3]
     ys, xs = np.where(a > 8)
@@ -68,10 +78,12 @@ def trim(img, pad=2):
     return img.crop((x0, y0, x1, y1))
 
 
-def main():
+def main(only=None):
     os.makedirs(OUT, exist_ok=True)
     done, missing = [], []
     for name, (size, do_trim) in TARGETS.items():
+        if only and name not in only:
+            continue
         src = os.path.join(RAW, name + ".png")
         if not os.path.exists(src):
             missing.append(name)
@@ -94,7 +106,7 @@ def main():
             done.append((name, img.size))
             continue
 
-        img = key_out(img)
+        img = img.convert("RGBA") if has_alpha(img) else key_out(img)
         if do_trim:
             img = trim(img)
         scale = size / max(img.width, img.height)
@@ -111,4 +123,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:] or None)
