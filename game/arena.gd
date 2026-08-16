@@ -243,27 +243,26 @@ func _draw_markers(g: float) -> void:
 			continue
 		var p := sim.predict(s, g)
 		if p != Vector2.INF:
-			_draw_marker(p, Sim.nose_color(s.sober), Vector2(s.x, s.y))
+			_draw_marker(p, Sim.nose_color(s.sober), Vector2(s.x, s.y), CFG.SANTA_RADIUS)
 
 	# Шару маркер нужнее всех: в режиме шара он единственный, кого нельзя ронять.
-	if sim.ball != null:
-		var pb := sim.predict(sim.ball, g)
-		if pb != Vector2.INF:
-			_draw_marker(pb, BALL_COLOR, Vector2(sim.ball.x, sim.ball.y))
+	var pb := sim.predict_ball(g)
+	if pb != Vector2.INF:
+		_draw_marker(pb, BALL_COLOR, Vector2(sim.ball.x, sim.ball.y), CFG.BALL_RADIUS)
 
 
-func _draw_marker(p: Vector2, col: Color, body: Vector2) -> void:
+func _draw_marker(p: Vector2, col: Color, body: Vector2, radius: float) -> void:
 	var a := clampf(1.15 - p.x / 2.4, 0.12, 0.9)
 
 	# пунктирная окружность на линии палки: 13 штрихов через пропуск
 	var center := Vector2(p.y, CFG.PADDLE_Y)
-	var r := CFG.SANTA_RADIUS + 2.0
+	var r := radius + 2.0
 	var seg := TAU / 13.0
 	for i in 13:
 		draw_arc(center, r, i * seg, i * seg + seg * 0.55, 4, Color(col, a), 2.0)
 
 	# вертикальная нить от тела к маркеру
-	draw_line(Vector2(p.y, CFG.PADDLE_Y - CFG.SANTA_RADIUS), Vector2(p.y, maxf(0.0, body.y)),
+	draw_line(Vector2(p.y, CFG.PADDLE_Y - radius), Vector2(p.y, maxf(0.0, body.y)),
 			Color(col, a * 0.28), 2.0)
 
 	# тело ещё за верхней границей — рисуем предупреждение
@@ -306,23 +305,23 @@ func _draw_ball() -> void:
 	if b == null:
 		return
 
+	var r := CFG.BALL_RADIUS
 	for i in _trail.size():
 		var k := float(i + 1) / TRAIL_LEN
-		draw_circle(_trail[i], CFG.SANTA_RADIUS * 0.8 * k, Color(BALL_COLOR, 0.13 * k))
+		draw_circle(_trail[i], r * 0.85 * k, Color(BALL_COLOR, 0.16 * k))
 
-	var rr := CFG.SANTA_RADIUS * 2.1
+	# Свечение шире самого шара: мелкую цель ловят боковым зрением по нему.
+	var rr := r * 3.4
 	draw_texture_rect(_glow, Rect2(b.x - rr, b.y - rr, rr * 2.0, rr * 2.0), false,
-			Color(BALL_COLOR, 0.38))
+			Color(BALL_COLOR, 0.42))
 
 	# Тёмный контур — и стиль тот же, что у спрайтов, и шар не путается с луной
-	# на фоне: она такого же размера и такая же круглая.
+	# на фоне: она такая же круглая.
 	var c := Vector2(b.x, b.y)
-	draw_circle(c, CFG.SANTA_RADIUS + 2.0, Color("1b2540"))
-	draw_circle(c, CFG.SANTA_RADIUS, BALL_COLOR)
-	draw_circle(c + Vector2(-0.3, -0.34) * CFG.SANTA_RADIUS, CFG.SANTA_RADIUS * 0.3,
-			Color("ffffff"))
-	draw_circle(c + Vector2(0.26, 0.3) * CFG.SANTA_RADIUS, CFG.SANTA_RADIUS * 0.42,
-			Color("c3d3ec", 0.55))                   # тень снизу-справа: шар, а не блин
+	draw_circle(c, r + 1.5, Color("1b2540"))
+	draw_circle(c, r, BALL_COLOR)
+	draw_circle(c + Vector2(-0.3, -0.34) * r, r * 0.3, Color("ffffff"))
+	draw_circle(c + Vector2(0.26, 0.3) * r, r * 0.42, Color("c3d3ec", 0.55))
 
 
 func _draw_paddle(off: Vector2) -> void:
@@ -372,7 +371,7 @@ func _on_fell(x: float) -> void:
 
 func _on_ball_bounced(x: float, sweet: bool) -> void:
 	_squash = 1.0
-	_add_puff(Vector2(x, Sim.PLANE + CFG.SANTA_RADIUS), 10 if sweet else 6,
+	_add_puff(Vector2(x, Sim.BALL_PLANE + CFG.BALL_RADIUS), 10 if sweet else 6,
 			Color("ffe08a") if sweet else BALL_COLOR)
 	Audio.play("hit", 0.7 if sweet else 0.6)        # ниже икоты: шар, а не Дед Мороз
 

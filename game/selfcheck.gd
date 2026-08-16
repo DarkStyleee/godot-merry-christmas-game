@@ -28,11 +28,10 @@ static func aim(sim: Sim) -> void:
 	var g := sim.gravity_now()
 	var best_t := INF
 
-	if sim.ball != null:
-		var pb := sim.predict(sim.ball, g)
-		if pb != Vector2.INF:
-			best_t = pb.x - BALL_BIAS
-			sim.aim_x = pb.y
+	var pb := sim.predict_ball(g)
+	if pb != Vector2.INF:
+		best_t = pb.x - BALL_BIAS
+		sim.aim_x = pb.y
 
 	for s in sim.santas:
 		if s.escaping:

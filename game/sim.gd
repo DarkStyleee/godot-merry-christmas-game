@@ -27,6 +27,7 @@ enum Outcome { NONE, DEFEAT, VICTORY }
 
 const PADDLE_TOP := CFG.PADDLE_Y - CFG.PADDLE_HEIGHT / 2.0
 const PLANE := PADDLE_TOP - CFG.SANTA_RADIUS       ## Y центра Деда в момент касания
+const BALL_PLANE := PADDLE_TOP - CFG.BALL_RADIUS   ## то же для шара: он мельче
 
 const BONUS_KINDS := ["wide", "high", "slow", "snack"]
 
@@ -331,7 +332,7 @@ func _step_ball(dt: float, g: float, half_w: float) -> void:
 		if ball_wait <= 0.0:
 			ball = Santa.new()
 			ball.x = paddle_x                 # возвращается над палкой, не в засаду
-			ball.y = -CFG.SANTA_RADIUS
+			ball.y = -CFG.BALL_RADIUS
 			ball.phase = randf() * TAU
 		return
 
@@ -341,22 +342,23 @@ func _step_ball(dt: float, g: float, half_w: float) -> void:
 	ball.y += ball.vy * dt
 	ball.rot += ball.spin * dt
 
-	if ball.x < CFG.SANTA_RADIUS:
-		ball.x = CFG.SANTA_RADIUS
+	if ball.x < CFG.BALL_RADIUS:
+		ball.x = CFG.BALL_RADIUS
 		ball.vx = -ball.vx * CFG.WALL_DAMP
-	if ball.x > CFG.ARENA_W - CFG.SANTA_RADIUS:
-		ball.x = CFG.ARENA_W - CFG.SANTA_RADIUS
+	if ball.x > CFG.ARENA_W - CFG.BALL_RADIUS:
+		ball.x = CFG.ARENA_W - CFG.BALL_RADIUS
 		ball.vx = -ball.vx * CFG.WALL_DAMP
-	if ball.y < CFG.SANTA_RADIUS and ball.vy < 0.0:
-		ball.y = CFG.SANTA_RADIUS
+	if ball.y < CFG.BALL_RADIUS and ball.vy < 0.0:
+		ball.y = CFG.BALL_RADIUS
 		ball.vy = -ball.vy * CFG.WALL_DAMP
 
-	if ball.vy > 0.0 and prev_y <= PLANE and ball.y >= PLANE and absf(ball.x - paddle_x) <= half_w:
-		var d := _kick(ball, g, half_w)
+	if (ball.vy > 0.0 and prev_y <= BALL_PLANE and ball.y >= BALL_PLANE
+			and absf(ball.x - paddle_x) <= half_w):
+		var d := _kick(ball, g, half_w, BALL_PLANE)
 		ball_bounced.emit(ball.x, d <= CFG.SWEET_ZONE)
 		return
 
-	if ball.y - CFG.SANTA_RADIUS > CFG.ARENA_H:
+	if ball.y - CFG.BALL_RADIUS > CFG.ARENA_H:
 		balls_lost += 1
 		ball_lost.emit(ball.x)
 		ball = null
@@ -370,7 +372,7 @@ func _step_ball(dt: float, g: float, half_w: float) -> void:
 ## Возвращает |смещение| в долях полуширины — по нему считается сладкая зона.
 ## Общий для тел и шара: физика удара у них обязана совпадать до цифры, иначе
 ## наигранное в одном режиме перестаёт работать в другом.
-func _kick(s: Santa, g: float, half_w: float) -> float:
+func _kick(s: Santa, g: float, half_w: float, plane := PLANE) -> float:
 	var off := s.x - paddle_x
 	var d := minf(1.0, absf(off) / half_w)
 	var h := bounce_height(d)
@@ -378,7 +380,7 @@ func _kick(s: Santa, g: float, half_w: float) -> float:
 		h *= CFG.HIGH_FACTOR
 	h = minf(h, CFG.H_CAP)
 
-	s.y = PLANE
+	s.y = plane
 	s.vy = -sqrt(2.0 * g * h * CFG.ARENA_H)
 	s.vx = clampf(signf(off) * CFG.VX_BASE * d + paddle_vx * CFG.VX_FROM_PADDLE,
 			-CFG.VX_MAX, CFG.VX_MAX)
@@ -494,12 +496,12 @@ func bounce_height(d: float) -> float:
 
 ## Складывает X внутрь арены с учётом отражений от стен — как если бы тело
 ## отскакивало от них по пути.
-func fold_x(x: float) -> float:
-	var span := CFG.ARENA_W - 2.0 * CFG.SANTA_RADIUS
-	var u := fposmod(x - CFG.SANTA_RADIUS, 2.0 * span)
+func fold_x(x: float, r := CFG.SANTA_RADIUS) -> float:
+	var span := CFG.ARENA_W - 2.0 * r
+	var u := fposmod(x - r, 2.0 * span)
 	if u > span:
 		u = 2.0 * span - u
-	return u + CFG.SANTA_RADIUS
+	return u + r
 
 
 ## Снос метелью за интервал [t0, t0+T] — точный интеграл, не приближение.
@@ -510,14 +512,19 @@ func drift_shift(phase: float, t0: float, duration: float) -> float:
 
 ## Предсказание точки и времени касания плоскости палки.
 ## Возвращает Vector2(время, X) либо Vector2.INF, если тело туда не придёт.
-func predict(s: Santa, g: float) -> Vector2:
-	var disc := s.vy * s.vy + 2.0 * g * (PLANE - s.y)
+func predict(s: Santa, g: float, plane := PLANE, r := CFG.SANTA_RADIUS) -> Vector2:
+	var disc := s.vy * s.vy + 2.0 * g * (plane - s.y)
 	if disc < 0.0:
 		return Vector2.INF
 	var time := (-s.vy + sqrt(disc)) / g
 	if time < 0.0:
 		return Vector2.INF
-	return Vector2(time, fold_x(s.x + s.vx * time + drift_shift(s.phase, t, time)))
+	return Vector2(time, fold_x(s.x + s.vx * time + drift_shift(s.phase, t, time), r))
+
+
+## То же для шара — у него своя плоскость касания и свой радиус.
+func predict_ball(g: float) -> Vector2:
+	return Vector2.INF if ball == null else predict(ball, g, BALL_PLANE, CFG.BALL_RADIUS)
 
 
 ## Честный спавн: если новое тело приземлится одновременно с уже летящим,
