@@ -1,22 +1,29 @@
-# Релиз по тегу: собирает тот же exe, что и tools\build.ps1 локально, и кладёт
-# его в релиз на GitHub. Скрипт сборки один на оба случая — иначе CI однажды
-# начнёт собирать не то, что собирает разработчик.
+# Авторелиз: каждый пуш в main собирает exe и выкладывает его новым релизом.
+# Номер считается сам, от последнего тега: v1.0, v1.1, v1.2 и так далее. Тег
+# создаёт сам релиз, руками ставить нечего.
 #
-#   git tag v1.1 && git push origin v1.1
+# Мажорную версию задаёт тег: `git tag v2.0 && git push origin v2.0` — тогда
+# берётся он, а дальше счёт продолжится от него.
 #
-# Запуск руками (workflow_dispatch) собирает то же самое, но релиз не создаёт:
-# exe остаётся артефактом прогона. Так проверяется сборка, когда публиковать
-# ещё нечего.
+# Правки в *.md релиз не плодят. Ручной запуск (workflow_dispatch) собирает то
+# же самое, но ничего не публикует: exe остаётся артефактом прогона.
 
 name: release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths-ignore: ["**.md"]
   workflow_dispatch:
 
 permissions:
   contents: write        # нужно, чтобы gh release create мог писать в репозиторий
+
+# Два пуша подряд не должны считать один и тот же следующий номер.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   GODOT_VERSION: 4.7.1-stable
@@ -25,13 +32,33 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-tags: true       # по ним считается следующий номер версии
+
+      - name: Номер версии
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}"
+          } else {
+            $tags = @(git tag --list "v*" --sort=-v:refname)
+            if ($tags.Count -eq 0) {
+              $v = "v1.0"
+            } else {
+              $p = $tags[0].TrimStart("v").Split(".")
+              $v = "v{0}.{1}" -f $p[0], ([int]$p[1] + 1)
+            }
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "версия релиза: $v"
 
       # Шаблоны экспорта весят под гигабайт и меняются только вместе с версией
       # движка — качать их на каждый релиз незачем.
       - name: Кэш шаблонов экспорта
         id: templates
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/AppData/Roaming/Godot/export_templates
           key: godot-templates-${{ env.GODOT_VERSION }}
@@ -52,13 +79,11 @@ jobs:
             Move-Item tpz\templates\* $dest
           }
 
-      # Версия из тега попадает в меню игры. При ручном запуске тега нет, и
-      # project.godot остаётся нетронутым.
-      - name: Версия из тега
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Номер релиза виден в углу меню, поэтому он же ложится в project.godot.
+      - name: Версия в project.godot
         shell: pwsh
         run: |
-          $v = "${{ github.ref_name }}".TrimStart("v")
+          $v = "${{ steps.ver.outputs.version }}".TrimStart("v")
           (Get-Content project.godot -Raw) -replace 'config/version="[^"]*"', "config/version=`"$v`"" |
             Set-Content project.godot -Encoding utf8 -NoNewline
 
@@ -75,14 +100,17 @@ jobs:
           GODOT: ${{ github.workspace }}\godot\Godot_v4.7.1-stable_win64_console.exe
         run: .\tools\build.ps1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: MerryChristmas
+          name: MerryChristmas-${{ steps.ver.outputs.version }}
           path: build/MerryChristmas.exe
 
+      # Тег создаётся вместе с релизом, на том же коммите.
       - name: Релиз
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create ${{ github.ref_name }} build/MerryChristmas.exe --generate-notes
+        run: |
+          gh release create ${{ steps.ver.outputs.version }} build/MerryChristmas.exe `
+            --target ${{ github.sha }} --generate-notes
