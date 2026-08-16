@@ -22,7 +22,7 @@ const SPEED_CLAMP := 1200.0        # px/s, потолок учитываемой
 
 # ---- Дед Мороз ----
 const SANTA_RADIUS := 22.0
-const MAX_ON_FIELD := 12
+const MAX_ON_FIELD := 12           # абсолютный потолок, уровень до него дорастает
 const SPAWN_MARGIN := 60.0         # отступ от стен при спавне
 
 # Честный спавн. Новый Дед Мороз падает до палки ~1.3 с. Если его приземление
@@ -83,42 +83,91 @@ const BOTTLE_SOBER_LOSS := 2
 const GRACE_AFTER_LOSS := 0.8      # с, окно неуязвимости после потери HP
 const SCORE_BOUNCE := 10
 const SCORE_SOBER := 100
+const SCORE_LEVEL := 50            # за взятый уровень: SCORE_LEVEL * номер
 const COMBO_STEP := 10             # отскоков подряд на +1 к множителю
 const MAX_MULT := 5
 
-# ---- Пресеты сложности ----------------------------------------------------
-# spawn:   интервал   S(t) = s_min + (s0 - s_min) * exp(-t / tau)
-# gravity: гравитация g(t) = g_max - (g_max - g0) * exp(-t / tau)
+# ---- уровни ---------------------------------------------------------------
+# Эскалация привязана к номеру уровня, а не к секундам: внутри уровня числа
+# постоянны, шаг слышен на границе — как скорость в тетрисе.
 #
-# Почему эскалация идёт по гравитации, а не по числу тел: число тел на поле
-# упирается в пропускную способность рук игрока и не растёт выше ~2-3, сколько
-# ни ускоряй спавн — лишние тела просто падают. Поэтому давление создаёт темп:
-# высота отскока от g не зависит (она задана долей высоты арены), а время цикла
-# падает с 2.9 с до 1.7 с, и требуемый темп ударов растёт вдвое. BALANCE.md §4.
+#   гравитация  g(L) = g_max - (g_max - g0) * exp(-(L-1) / g_tau)
+#   спавн       S(L) = s_min + (s0 - s_min) * exp(-(L-1) / s_tau)
+#   лимит тел   N(L) = field0 + (L-1) / field_step,  не выше MAX_ON_FIELD
+#   квота       Q(L) = quota0 + (L-1) / quota_step,  не выше quota_cap
+#
+# Все четыре монотонны по L, так что «каждый уровень тяжелее предыдущего»
+# выполняется буквально. Кривые с насыщением: к сороковым уровням гравитация и
+# спавн выходят на плато, дальше растёт только квота. Иначе сотый уровень
+# физически не отбивается — время цикла отскока T = 2*sqrt(2*h*600/g), и уже
+# при g > 2000 требуемый темп уходит за человеческий потолок в ~1 удар/с
+# (BALANCE.md §1.1). Плато превращает хвост в испытание выносливости, а не в
+# мясорубку с заранее известным исходом.
+const LEVEL_MAX := 100
+const LEVEL_HEAL_EVERY := 5        # каждые N уровней +1 HP, но не выше hp_max
+
+# ---- Пресеты сложности ----
 const DIFF_ORDER := ["casual", "normal", "hardcore"]
 const DIFFICULTY := {
 	"casual": {
 		"label": "Ёлочка",
+		"hint": "Спокойно разобраться, что тут вообще происходит",
 		"hp_start": 7, "hp_max": 7,
-		"spawn_s0": 8.0, "spawn_min": 2.2, "spawn_tau": 85.0,
-		"g0": 420.0, "g_max": 900.0, "g_tau": 110.0,
+		"g0": 420.0, "g_max": 1100.0, "g_tau": 22.0,
+		"spawn0": 5.0, "spawn_min": 1.5, "spawn_tau": 26.0,
+		"field0": 2, "field_step": 8.0,
+		"quota0": 2, "quota_step": 5.0, "quota_cap": 8,
 		"bonus_every": 12.0, "brine_every": 45.0,
-		"hazard_from": 120.0, "hazard_every": 26.0,
+		"hazard_level": 8, "hazard_every": 26.0,
 	},
 	"normal": {
 		"label": "Корпоратив",
+		"hint": "Как задумано: руки заняты, голова считает",
 		"hp_start": 5, "hp_max": 5,
-		"spawn_s0": 6.5, "spawn_min": 1.7, "spawn_tau": 65.0,
-		"g0": 480.0, "g_max": 1000.0, "g_tau": 110.0,
+		"g0": 480.0, "g_max": 1400.0, "g_tau": 18.0,
+		"spawn0": 4.2, "spawn_min": 1.35, "spawn_tau": 22.0,
+		"field0": 2, "field_step": 6.0,
+		"quota0": 2, "quota_step": 4.0, "quota_cap": 8,
 		"bonus_every": 15.0, "brine_every": 60.0,
-		"hazard_from": 90.0, "hazard_every": 20.0,
+		"hazard_level": 6, "hazard_every": 20.0,
 	},
 	"hardcore": {
 		"label": "Похмелье",
+		"hint": "Двадцатый уровень тут дороже сотого на Ёлочке",
 		"hp_start": 5, "hp_max": 5,
-		"spawn_s0": 5.5, "spawn_min": 1.3, "spawn_tau": 55.0,
-		"g0": 520.0, "g_max": 1300.0, "g_tau": 75.0,
+		"g0": 560.0, "g_max": 1800.0, "g_tau": 14.0,
+		"spawn0": 3.6, "spawn_min": 1.05, "spawn_tau": 18.0,
+		"field0": 3, "field_step": 5.0,
+		"quota0": 3, "quota_step": 4.0, "quota_cap": 10,
 		"bonus_every": 18.0, "brine_every": 75.0,
-		"hazard_from": 60.0, "hazard_every": 16.0,
+		"hazard_level": 4, "hazard_every": 16.0,
 	},
 }
+
+
+static func preset(diff_key: String) -> Dictionary:
+	return DIFFICULTY.get(diff_key, DIFFICULTY["normal"])
+
+
+static func gravity_for(p: Dictionary, level: int) -> float:
+	var g_max: float = p["g_max"]
+	var g0: float = p["g0"]
+	var tau: float = p["g_tau"]
+	return g_max - (g_max - g0) * exp(-float(level - 1) / tau)
+
+
+static func spawn_interval_for(p: Dictionary, level: int) -> float:
+	var s_min: float = p["spawn_min"]
+	var s0: float = p["spawn0"]
+	var tau: float = p["spawn_tau"]
+	return s_min + (s0 - s_min) * exp(-float(level - 1) / tau)
+
+
+static func field_cap_for(p: Dictionary, level: int) -> int:
+	var step: float = p["field_step"]
+	return mini(MAX_ON_FIELD, int(p["field0"]) + int(float(level - 1) / step))
+
+
+static func quota_for(p: Dictionary, level: int) -> int:
+	var step: float = p["quota_step"]
+	return mini(int(p["quota_cap"]), int(p["quota0"]) + int(float(level - 1) / step))

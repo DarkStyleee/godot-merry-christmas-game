@@ -1,9 +1,9 @@
 /* ============================================================================
-   Развёртка параметров спавна под целевую кривую сложности.
+   Развёртка кривых уровня под целевую глубину забега.
 
-   Цели заданы в TARGETS: медиана длительности забега для «среднего» игрока
-   и желаемое число тел на поле в эндгейме. Скрипт перебирает (s0, sMin, tau,
-   hp), гоняет симулятор и печатает лучшие комбинации.
+   Цель задана в TARGETS: до какого уровня доходит «средний» игрок. Скрипт
+   перебирает кривые (разгон гравитации, разгон спавна, рост лимита тел),
+   гоняет симулятор и печатает лучшие комбинации.
 
    Запуск:  node tools/tune.js [runs]
    ========================================================================== */
@@ -11,63 +11,64 @@
 const CONFIG = require('./config.js');
 const { run } = require('./sim.js');
 
-// tMid — целевая медиана забега для скилла average, с
-// nEnd — целевое число тел на поле в последние 20 с перед проигрышем
+// lvl — целевая медиана уровня для скилла average
+// span — во сколько раз pro должен уходить дальше novice (скилл должен решать)
 const TARGETS = {
-  casual:   { tMid: 165, nEnd: 2.5 },
-  normal:   { tMid: 115, nEnd: 3.0 },
-  hardcore: { tMid: 72,  nEnd: 3.5 },
+  casual:   { lvl: 17, span: 1.8 },
+  normal:   { lvl: 12, span: 1.7 },
+  hardcore: { lvl: 6,  span: 1.8 },
 };
 
-// Спавн уже упёрся в потолок пропускной способности, поэтому крутим то, что
-// реально двигает сложность: запас HP и кривую разгона гравитации.
+// Крутим то, что реально двигает глубину: скорость разгона гравитации, скорость
+// разгона спавна и то, как быстро растёт лимит тел на поле. Сами потолки (gMax,
+// sMin) заданы физикой — см. BALANCE.md §8, ниже цикла в 1.3 с человек не живёт.
 const GRID = {
-  gMax: [900, 1150, 1400],
-  gTau: [70, 110, 150],
-  sMin: [1.4, 2.0],
+  gTau: [14, 18, 22, 26],
+  sTau: [16, 22, 28],
+  fieldStep: [4, 6, 8],
 };
-const HP_GRID = { casual: [7, 8, 9], normal: [5, 6, 7], hardcore: [4, 5, 6] };
 
-const RUNS = Number(process.argv[2] || 60);
+const RUNS = Number(process.argv[2] || 40);
 const median = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-const tail = (s, n) => s.slice(Math.max(0, s.length - n));
-const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 
 for (const diff of Object.keys(TARGETS)) {
   const T = TARGETS[diff];
   const base = CONFIG.difficulty[diff];
+  const g0 = base.gravity.g0, gMax = base.gravity.gMax;
+  const s0 = base.spawn.s0, sMin = base.spawn.sMin;
+  const n0 = base.field.n0;
   const results = [];
 
-  const s0 = base.spawn.s0, sTau = base.spawn.tau, g0 = base.gravity.g0;
+  for (const gTau of GRID.gTau) {
+    for (const sTau of GRID.sTau) {
+      for (const fieldStep of GRID.fieldStep) {
+        base.gravity = { g0, gMax, tau: gTau };
+        base.spawn = { s0, sMin, tau: sTau };
+        base.field = { n0, step: fieldStep };
 
-  for (const hp of HP_GRID[diff]) {
-    for (const gMax of GRID.gMax) {
-      for (const gTau of GRID.gTau) {
-        for (const sMin of GRID.sMin) {
-          base.hpStart = hp; base.hpMax = hp;
-          base.spawn = { s0, sMin, tau: sTau };
-          base.gravity = { g0, gMax, tau: gTau };
-
+        const lvl = {};
+        for (const skill of ['novice', 'average', 'pro']) {
           const rs = [];
-          for (let i = 0; i < RUNS; i++) rs.push(run(diff, 'average', i * 7919 + 13));
-          const med = median(rs.map((r) => r.survived));
-          const nEnd = mean(rs.map((r) => mean(tail(r.nSamples, 20))));
-          const err = Math.abs(med - T.tMid) / T.tMid +
-                      0.5 * Math.abs(nEnd - T.nEnd) / T.nEnd;
-          results.push({ hp, gMax, gTau, sMin, med, nEnd, err });
+          for (let i = 0; i < RUNS; i++) rs.push(run(diff, skill, i * 7919 + 13));
+          lvl[skill] = median(rs.map((r) => r.level));
         }
+        const span = lvl.pro / Math.max(1, lvl.novice);
+        const err = Math.abs(lvl.average - T.lvl) / T.lvl +
+                    0.5 * Math.abs(span - T.span) / T.span;
+        results.push({ gTau, sTau, fieldStep, lvl, span, err });
       }
     }
   }
 
   results.sort((a, b) => a.err - b.err);
-  console.log(`\n=== ${diff}  (цель: медиана ${T.tMid} c, тел на поле ${T.nEnd}) ===`);
-  console.log('  hp  gMax  gTau  sMin   медиана   тел   ошибка');
+  console.log(`\n=== ${diff}  (цель: средний до ${T.lvl}-го, разброс ×${T.span}) ===`);
+  console.log('  gTau  sTau  тел/шаг   novice  average  pro   разброс  ошибка');
   for (const r of results.slice(0, 6)) {
     console.log(
-      String(r.hp).padStart(4) + String(r.gMax).padStart(6) +
-      String(r.gTau).padStart(6) + r.sMin.toFixed(1).padStart(6) +
-      r.med.toFixed(1).padStart(10) + 'с' + r.nEnd.toFixed(1).padStart(6) +
-      r.err.toFixed(3).padStart(9));
+      String(r.gTau).padStart(6) + String(r.sTau).padStart(6) +
+      String(r.fieldStep).padStart(9) +
+      String(r.lvl.novice).padStart(9) + String(r.lvl.average).padStart(9) +
+      String(r.lvl.pro).padStart(5) +
+      r.span.toFixed(2).padStart(9) + r.err.toFixed(3).padStart(9));
   }
 }

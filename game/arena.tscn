@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://game/arena.gd" id="1_arena"]
+[ext_resource type="Script" path="res://game/hud.gd" id="2_hud"]
+
+[node name="Arena" type="Node2D"]
+process_mode = 1
+script = ExtResource("1_arena")
+
+[node name="Hud" type="Node2D" parent="."]
+unique_name_in_owner = true
+visible = false
+script = ExtResource("2_hud")

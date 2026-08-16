@@ -1,6 +1,32 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=7 format=3]
 
-[ext_resource type="Script" path="res://game.gd" id="1_game"]
+[ext_resource type="Script" path="res://main.gd" id="1_main"]
+[ext_resource type="PackedScene" path="res://game/arena.tscn" id="2_arena"]
+[ext_resource type="PackedScene" path="res://ui/main_menu.tscn" id="3_menu"]
+[ext_resource type="PackedScene" path="res://ui/settings_menu.tscn" id="4_settings"]
+[ext_resource type="PackedScene" path="res://ui/pause_menu.tscn" id="5_pause"]
+[ext_resource type="PackedScene" path="res://ui/results_screen.tscn" id="6_results"]
 
-[node name="Game" type="Node2D"]
-script = ExtResource("1_game")
+[node name="Main" type="Node"]
+process_mode = 3
+script = ExtResource("1_main")
+
+[node name="Arena" parent="." instance=ExtResource("2_arena")]
+unique_name_in_owner = true
+
+[node name="Ui" type="CanvasLayer" parent="."]
+
+[node name="MainMenu" parent="Ui" instance=ExtResource("3_menu")]
+unique_name_in_owner = true
+
+[node name="SettingsMenu" parent="Ui" instance=ExtResource("4_settings")]
+unique_name_in_owner = true
+visible = false
+
+[node name="PauseMenu" parent="Ui" instance=ExtResource("5_pause")]
+unique_name_in_owner = true
+visible = false
+
+[node name="Results" parent="Ui" instance=ExtResource("6_results")]
+unique_name_in_owner = true
+visible = false

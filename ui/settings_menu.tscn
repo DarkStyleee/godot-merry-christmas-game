@@ -1,0 +1,156 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/settings_menu.gd" id="1_settings"]
+
+[node name="SettingsMenu" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_settings")
+
+[node name="Dim" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.027, 0.043, 0.078, 0.9)
+
+[node name="Center" type="CenterContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="Center"]
+
+[node name="Box" type="VBoxContainer" parent="Center/Panel"]
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Center/Panel/Box"]
+theme_override_font_sizes/font_size = 26
+text = "НАСТРОЙКИ"
+horizontal_alignment = 1
+
+[node name="Grid" type="GridContainer" parent="Center/Panel/Box"]
+theme_override_constants/h_separation = 20
+theme_override_constants/v_separation = 8
+columns = 3
+
+[node name="MasterLabel" type="Label" parent="Center/Panel/Box/Grid"]
+custom_minimum_size = Vector2(210, 0)
+text = "Общая громкость"
+
+[node name="Master" type="HSlider" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(230, 0)
+size_flags_vertical = 4
+max_value = 1.0
+step = 0.05
+
+[node name="MasterValue" type="Label" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(52, 0)
+theme_override_colors/font_color = Color(0.624, 0.69, 0.8, 1)
+text = "90%"
+horizontal_alignment = 2
+
+[node name="MusicLabel" type="Label" parent="Center/Panel/Box/Grid"]
+text = "Музыка"
+
+[node name="Music" type="HSlider" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(230, 0)
+size_flags_vertical = 4
+max_value = 1.0
+step = 0.05
+
+[node name="MusicValue" type="Label" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.624, 0.69, 0.8, 1)
+text = "55%"
+horizontal_alignment = 2
+
+[node name="SfxLabel" type="Label" parent="Center/Panel/Box/Grid"]
+text = "Звуки"
+
+[node name="Sfx" type="HSlider" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(230, 0)
+size_flags_vertical = 4
+max_value = 1.0
+step = 0.05
+
+[node name="SfxValue" type="Label" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.624, 0.69, 0.8, 1)
+text = "90%"
+horizontal_alignment = 2
+
+[node name="MuteLabel" type="Label" parent="Center/Panel/Box/Grid"]
+text = "Тишина"
+tooltip_text = "Глушит и музыку, и звуки"
+
+[node name="Mute" type="CheckButton" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+
+[node name="MuteHint" type="Label" parent="Center/Panel/Box/Grid"]
+theme_override_colors/font_color = Color(0.357, 0.392, 0.471, 1)
+theme_override_font_sizes/font_size = 12
+text = "M"
+horizontal_alignment = 2
+
+[node name="FullscreenLabel" type="Label" parent="Center/Panel/Box/Grid"]
+text = "Во весь экран"
+
+[node name="Fullscreen" type="CheckButton" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+
+[node name="FullscreenHint" type="Label" parent="Center/Panel/Box/Grid"]
+theme_override_colors/font_color = Color(0.357, 0.392, 0.471, 1)
+theme_override_font_sizes/font_size = 12
+text = "F11"
+horizontal_alignment = 2
+
+[node name="ShakeLabel" type="Label" parent="Center/Panel/Box/Grid"]
+text = "Тряска при потере HP"
+
+[node name="Shake" type="CheckButton" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+
+[node name="ShakeSpacer" type="Label" parent="Center/Panel/Box/Grid"]
+text = ""
+
+[node name="MarkersLabel" type="Label" parent="Center/Panel/Box/Grid"]
+text = "Метки приземления"
+
+[node name="Markers" type="CheckButton" parent="Center/Panel/Box/Grid"]
+unique_name_in_owner = true
+
+[node name="MarkersSpacer" type="Label" parent="Center/Panel/Box/Grid"]
+text = ""
+
+[node name="Sep" type="HSeparator" parent="Center/Panel/Box"]
+
+[node name="Buttons" type="HBoxContainer" parent="Center/Panel/Box"]
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="ResetBtn" type="Button" parent="Center/Panel/Box/Buttons"]
+unique_name_in_owner = true
+text = "Сбросить рекорды"
+
+[node name="BackBtn" type="Button" parent="Center/Panel/Box/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 0)
+text = "Готово"
+
+[node name="Confirm" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "Сброс рекордов"
+size = Vector2i(360, 110)
+ok_button_text = "Стереть"
+dialog_text = "Стереть таблицу рекордов? Отменить будет нельзя."
+cancel_button_text = "Оставить"

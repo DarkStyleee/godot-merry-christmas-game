@@ -1,0 +1,87 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/results_screen.gd" id="1_results"]
+
+[node name="ResultsScreen" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_results")
+
+[node name="Dim" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.027, 0.043, 0.078, 0.88)
+
+[node name="Center" type="CenterContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Box" type="VBoxContainer" parent="Center"]
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Center/Box"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 46
+text = "ВСЕ УПАЛИ"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Center/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.624, 0.69, 0.8, 1)
+theme_override_font_sizes/font_size = 17
+text = "остановились на уровне 1"
+horizontal_alignment = 1
+
+[node name="RecordLine" type="Label" parent="Center/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.82, 0.4, 1)
+theme_override_font_sizes/font_size = 17
+text = ""
+horizontal_alignment = 1
+
+[node name="StatsCenter" type="CenterContainer" parent="Center/Box"]
+mouse_filter = 2
+
+[node name="Stats" type="GridContainer" parent="Center/Box/StatsCenter"]
+unique_name_in_owner = true
+mouse_filter = 2
+theme_override_constants/h_separation = 24
+theme_override_constants/v_separation = 3
+columns = 2
+
+[node name="Gap" type="Control" parent="Center/Box"]
+custom_minimum_size = Vector2(0, 10)
+mouse_filter = 2
+
+[node name="Buttons" type="HBoxContainer" parent="Center/Box"]
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="ContinueBtn" type="Button" parent="Center/Box/Buttons"]
+unique_name_in_owner = true
+visible = false
+text = "Продолжить без конца"
+
+[node name="AgainBtn" type="Button" parent="Center/Box/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 0)
+text = "Ещё раз"
+
+[node name="MenuBtn" type="Button" parent="Center/Box/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(180, 0)
+text = "В меню"
+
+[node name="Hint" type="Label" parent="Center/Box"]
+theme_override_colors/font_color = Color(0.357, 0.392, 0.471, 1)
+theme_override_font_sizes/font_size = 13
+text = "R — ещё раз   ·   Esc — в меню"
+horizontal_alignment = 1

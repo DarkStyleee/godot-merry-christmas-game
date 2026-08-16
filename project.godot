@@ -6,10 +6,16 @@ config_version=5
 [application]
 
 config/name="Merry Christmas"
-config/description="Аркада-жонглирование пьяными Дедами Морозами"
+config/description="Аркада-жонглирование пьяными Дедами Морозами: сто уровней, три сложности"
+config/version="1.0"
 run/main_scene="res://main.tscn"
 config/icon="res://icon.png"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+Profile="*res://common/profile.gd"
+Audio="*res://common/audio.gd"
 
 [display]
 
@@ -17,6 +23,28 @@ window/size/viewport_width=900
 window/size/viewport_height=600
 window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
+
+[gui]
+
+theme/custom="res://ui/theme.tres"
+
+[input]
+
+; physical_keycode, а не keycode: игра с русской раскладкой должна слушаться тех
+; же клавиш, что с английской. Esc и подтверждение берутся из встроенных
+; ui_cancel / ui_accept — переопределять их незачем.
+restart={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":82)]
+}
+mute={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":77)]
+}
+fullscreen={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"device":-1,"physical_keycode":4194342)]
+}
 
 [physics]
 

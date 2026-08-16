@@ -174,22 +174,31 @@ function pickSpawnX(santas, g, rnd, t) {
   return Math.max(lo, Math.min(hi, near));
 }
 
+// ------------------------------------------------------ кривые уровня ----
+// Те же формулы, что в common/config.gd. Внутри уровня числа постоянны.
+const gravityAt = (D, L) => D.gravity.gMax - (D.gravity.gMax - D.gravity.g0) * Math.exp(-(L - 1) / D.gravity.tau);
+const spawnAt = (D, L) => D.spawn.sMin + (D.spawn.s0 - D.spawn.sMin) * Math.exp(-(L - 1) / D.spawn.tau);
+const fieldAt = (D, L) => Math.min(S.maxOnField, D.field.n0 + Math.floor((L - 1) / D.field.step));
+const quotaAt = (D, L) => Math.min(D.quota.cap, D.quota.n0 + Math.floor((L - 1) / D.quota.step));
+
 // -------------------------------------------------------------- прогон ----
-function run(diffKey, skillKey, seed, maxTime = 600) {
+function run(diffKey, skillKey, seed, maxTime = 1200) {
   const D = CONFIG.difficulty[diffKey];
   const K = SKILLS[skillKey];
   const rnd = mulberry32(seed);
 
   let t = 0, hp = D.hpStart, score = 0, mult = 1, streak = 0, maxStreak = 0;
   let bounces = 0, misses = 0, sobered = 0, graceUntil = -1;
-  let firstMiss = null;
+  let firstMiss = null, victory = false;
+  let level = 1, quotaDone = 0, quotaNeed = quotaAt(D, 1);
+  const levelAt = [];                           // время взятия каждого уровня
   const santas = [], items = [];
   const nSamples = [];                          // N раз в секунду
   let nextSample = 0;
 
   // таймеры спавна
   let nextSanta = 0, nextBonus = D.bonusEvery, nextBrine = D.brineEvery,
-      nextHazard = D.hazardFrom;
+      nextHazard = level >= D.hazardLevel ? D.hazardEvery / 2 : Infinity;
 
   // состояние палки
   let px = A.w / 2, pv = 0, aimX = A.w / 2, aimBias = 0, shotOffset = 0,
@@ -199,15 +208,14 @@ function run(diffKey, skillKey, seed, maxTime = 600) {
 
   const dt = 1 / 120;
 
-  while (t < maxTime && hp > 0) {
-    const gc = D.gravity;
-    let g = gc.gMax - (gc.gMax - gc.g0) * Math.exp(-t / gc.tau);
+  while (t < maxTime && hp > 0 && !victory) {
+    let g = gravityAt(D, level);
     if (t < slowUntil) g *= CONFIG.items.slowFactor;
     const halfW = (P.width * (t < wideUntil ? CONFIG.items.wideFactor : 1)) / 2;
 
     // ---- спавн ------------------------------------------------------------
     if (t >= nextSanta) {
-      if (santas.length < S.maxOnField) {
+      if (santas.length < fieldAt(D, level)) {
         santas.push({
           id: uid++,
           x: pickSpawnX(santas, g, rnd, t),
@@ -216,12 +224,11 @@ function run(diffKey, skillKey, seed, maxTime = 600) {
         });
         if (TRACE) console.log(`  спавн id=${uid - 1} t=${t.toFixed(2)} x=${santas[santas.length - 1].x.toFixed(0)} N=${santas.length}`);
       }
-      const sp = D.spawn;
-      nextSanta = t + sp.sMin + (sp.s0 - sp.sMin) * Math.exp(-t / sp.tau);
+      nextSanta = t + spawnAt(D, level);
     }
     if (t >= nextBonus) { items.push({ kind: 'bonus', y: -20 }); nextBonus = t + D.bonusEvery; }
     if (t >= nextBrine) { items.push({ kind: 'brine', y: -20 }); nextBrine = t + D.brineEvery; }
-    if (t >= D.hazardFrom && t >= nextHazard) { items.push({ kind: 'hazard', y: -20 }); nextHazard = t + D.hazardEvery; }
+    if (t >= nextHazard) { items.push({ kind: 'hazard', y: -20 }); nextHazard = t + D.hazardEvery; }
 
     // ---- бот: выбор цели --------------------------------------------------
     let best = null, bestT = Infinity;
@@ -311,6 +318,17 @@ function run(diffKey, skillKey, seed, maxTime = 600) {
           sobered++; score += CONFIG.score.sober * mult;
           santas.splice(i, 1);
           if (targetId === s.id) targetId = -1;
+
+          if (++quotaDone >= quotaNeed) {        // уровень взят
+            score += CONFIG.score.level * level;
+            levelAt.push(t);
+            if (level >= CONFIG.levels.max) { victory = true; break; }
+            if (level % CONFIG.levels.healEvery === 0) hp = Math.min(D.hpMax, hp + 1);
+            level++;
+            quotaDone = 0;
+            quotaNeed = quotaAt(D, level);
+            if (level >= D.hazardLevel && nextHazard === Infinity) nextHazard = t + D.hazardEvery / 2;
+          }
           continue;
         }
       }
@@ -357,7 +375,8 @@ function run(diffKey, skillKey, seed, maxTime = 600) {
     t += dt;
   }
 
-  return { survived: t, hp, score, bounces, misses, sobered, maxStreak, firstMiss, nSamples };
+  return { survived: t, hp, score, bounces, misses, sobered, maxStreak, firstMiss,
+           level, victory, levelAt, nSamples };
 }
 
 module.exports = { run, SKILLS };
@@ -377,8 +396,8 @@ const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
 
 const RUNS = Number(process.argv[2] || 200);
 
-console.log(`\nvxBase=${S.vxBase}  vxMax=${S.vxMax}  порог=${S.sober.threshold}  прогонов=${RUNS}\n`);
-console.log('сложность  скилл    выжил(med)   p25/p75    1-й пром.  N@30  N@60  N@90  N@120  N@180  уд/с  очки(med)');
+console.log(`\nуровней=${CONFIG.levels.max}  порог трезвости=${S.sober.threshold}  прогонов=${RUNS}\n`);
+console.log('сложность  скилл    уровень  p25/p75   выжил(med)  1-й пром.  ур/мин  N@60  N@180  уд/с  очки(med)  до 100');
 console.log('-'.repeat(112));
 
 const ONLY_DIFF = process.env.DIFF, ONLY_SKILL = process.env.SKILL;
@@ -389,18 +408,21 @@ for (const diff of Object.keys(CONFIG.difficulty)) {
     const runs = [];
     for (let i = 0; i < RUNS; i++) runs.push(run(diff, skill, i * 7919 + 13));
     const surv = runs.map((r) => r.survived);
+    const lvl = runs.map((r) => r.level);
     const fm = runs.map((r) => (r.firstMiss === null ? 999 : r.firstMiss));
+    const won = runs.filter((r) => r.victory).length;
     console.log(
-      diff.padEnd(10) + skill.padEnd(9) +
-      f(pct(surv, 0.5)).padStart(8) + 'с' +
-      (f(pct(surv, 0.25)) + '/' + f(pct(surv, 0.75))).padStart(13) +
-      f(pct(fm, 0.5)).padStart(11) + 'с' +
-      f(avgAt(runs, 30)).padStart(6) + f(avgAt(runs, 60)).padStart(6) +
-      f(avgAt(runs, 90)).padStart(6) + f(avgAt(runs, 120)).padStart(7) +
-      f(avgAt(runs, 180)).padStart(7) +
+      diff.padEnd(10) + skill.padEnd(8) +
+      String(pct(lvl, 0.5)).padStart(7) +
+      (pct(lvl, 0.25) + '/' + pct(lvl, 0.75)).padStart(9) +
+      f(pct(surv, 0.5)).padStart(11) + 'с' +
+      f(pct(fm, 0.5)).padStart(10) + 'с' +
+      f(mean(runs.map((r) => (r.level - 1) / (r.survived / 60))), 2).padStart(8) +
+      f(avgAt(runs, 60)).padStart(6) + f(avgAt(runs, 180)).padStart(7) +
       f(mean(runs.map((r) => r.bounces / r.survived)), 2).padStart(6) +
-      String(pct(runs.map((r) => r.score), 0.5)).padStart(11)
+      String(pct(runs.map((r) => r.score), 0.5)).padStart(11) +
+      ((100 * won / RUNS).toFixed(0) + '%').padStart(7)
     );
   }
-  console.log('-'.repeat(114));
+  console.log('-'.repeat(112));
 }
