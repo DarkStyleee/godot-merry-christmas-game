@@ -156,8 +156,9 @@ Sim не знает про ноды, Arena не знает про правила
 powershell -ExecutionPolicy Bypass -File tools\build.ps1
 ```
 
-Скрипт гоняет самопроверку, собирает `build\MerryChristmas.exe` и впечатывает
-иконку через rcedit, который скачивается сам.
+Скрипт гоняет самопроверку и собирает `build\MerryChristmas.exe`. Иконку
+впечатывает сам экспорт Godot: rcedit поверх готового exe ломает его запуск на
+Windows 10 1903.
 
 **Релизы.** Пуш в `main` собирает exe и выкладывает его новой версией:
 `.github/workflows/release.yml` поднимает Windows-машину, качает Godot со

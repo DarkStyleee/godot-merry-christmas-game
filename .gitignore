@@ -1,8 +1,7 @@
 # кэш импорта Godot — пересобирается сам
 .godot/
 
-# собранный exe и качаемый под него rcedit
+# собранный exe
 build/
-tools/rcedit-x64.exe
 
 *.tmp
