@@ -1,3 +1,4 @@
+#Requires -Version 7
 # Генерация полного набора ассетов. Запускать из корня проекта.
 # Долгая: ~13 картинок по 40-60 с.
 $root = Split-Path $PSScriptRoot -Parent

@@ -1,3 +1,10 @@
+## Verification
+
+**Prove a change with `pwsh -File tools/build.ps1`, or, for logic alone, `godot_console --headless --path . -- --check`
+read by its output.** The check exits 0 even when an `assert` fails, printing only `SCRIPT ERROR`, so judge by that
+line and by `CHECK flow ok`, as `build.ps1` does. A script that fails to compile hangs Godot instead of exiting
+(2026-10-25), so run the check under a timeout.
+
 ## Agent skills
 
 ### Issue tracker

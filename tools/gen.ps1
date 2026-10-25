@@ -1,3 +1,4 @@
+#Requires -Version 7
 # Генерация ассета через agy (generate_image) + перенос результата в assets/raw.
 # Использование: .\tools\gen.ps1 -Name santa_body -Prompt "..." [-Ref path.png]
 param(
