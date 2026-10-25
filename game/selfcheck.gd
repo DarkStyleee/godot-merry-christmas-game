@@ -48,6 +48,8 @@ static func run_all(with_curve := false) -> void:
 	check_math()
 	check_levels()
 	check_ball()
+	check_save()
+	check_one_ending()
 	for key: String in CFG.DIFF_ORDER:
 		if with_curve:
 			print(curve_table(key))
@@ -123,6 +125,115 @@ static func check_ball() -> void:
 	assert(perfect.ball != null, "шар не вернулся после падения")
 
 
+## Сохранение ломается тихо: забыли поле в to_dict() — после «Продолжить» оно
+## молча берётся из start(). Поэтому снимок гоняется через JSON туда и обратно
+## и сравнивается целиком, в обоих режимах и посреди живого поля. Плюс то, что
+## испорченный файл не поднимает забег, а не поднимает его наполовину.
+static func check_save() -> void:
+	for mode_key: String in CFG.MODE_ORDER:
+		var sim := Sim.new()
+		sim.start(mode_key, "normal")
+		play(sim, 40.0)
+		# Снимок нужен посреди живого поля, а бот в половине прогонов успевает его
+		# очистить к сороковой секунде: доигрываем, пока кто-нибудь не появится.
+		for i in 100:
+			if not sim.santas.is_empty():
+				break
+			play(sim, 0.1)
+		assert(sim.running, "%s: бот не дожил до снимка" % mode_key)
+		var text := JSON.stringify(sim.to_dict(), "", false, true)
+
+		var back := Sim.new()
+		assert(back.restore(JSON.parse_string(text)), "%s: снимок не поднялся" % mode_key)
+		assert(same_snapshot(sim.to_dict(), back.to_dict()),
+				"%s: снимок поднялся не таким, каким был записан" % mode_key)
+		assert(back.running and back.quota_need == sim.quota_need)
+		assert(back.santas.size() == sim.santas.size() and not back.santas.is_empty(),
+				"%s: поле потеряло тела (%d -> %d)" % [mode_key, sim.santas.size(), back.santas.size()])
+		play(back, 1.0)                              # поднятый забег живёт дальше
+		assert(back.t > sim.t, "%s: поднятый забег стоит" % mode_key)
+
+	# Выигранный забег поднимается выигранным, а не живым на сотом уровне: иначе
+	# «Продолжить» из меню потребовало бы взять сотый уровень ещё раз.
+	var won := Sim.new()
+	won.start("santa", "casual")
+	force_victory(won)
+	assert(won.outcome == Sim.Outcome.VICTORY, "сотый уровень не дал победы")
+	var won_back := Sim.from_dict(JSON.parse_string(JSON.stringify(won.to_dict(), "", false, true)))
+	assert(won_back != null, "выигранный забег не поднялся")
+	assert(won_back.outcome == Sim.Outcome.VICTORY and not won_back.running
+			and won_back.level == CFG.LEVEL_MAX, "выигранный забег поднялся не выигранным")
+	assert(same_snapshot(won.to_dict(), won_back.to_dict()),
+			"выигранный забег поднялся не таким, каким был записан")
+	won_back.continue_endless()
+	assert(won_back.running and won_back.endless and won_back.level == CFG.LEVEL_MAX + 1,
+			"выигранный забег не продолжается игрой без конца")
+
+	var good := Sim.new()
+	good.start("santa", "normal")
+	var snap := good.to_dict()
+	var broken: Array[Dictionary] = [
+		{}, {"version": 999}, {"mode": "chess"}, {"diff": "nightmare"},
+		{"hp": 0}, {"level": 0}, {"level": CFG.LEVEL_MAX + 1},
+		# победа бывает только на сотом уровне и только до игры без конца
+		{"victory": true, "level": 50},
+		{"victory": true, "level": CFG.LEVEL_MAX, "endless": true},
+	]
+	for patch in broken:
+		var d: Dictionary = snap.duplicate(true) if not patch.is_empty() else {}
+		d.merge(patch, true)
+		var probe := Sim.new()
+		probe.start("ball", "casual")
+		assert(not probe.restore(d), "поднялся испорченный снимок %s" % patch)
+		assert(probe.mode == "ball" and probe.diff == "casual",
+				"отвергнутый снимок всё-таки переписал забег")
+
+	# Обновление баланса может урезать запас шапок: забег из прошлой версии не
+	# пропадает, а продолжается с тем запасом, что разрешён теперь.
+	var more_hp := snap.duplicate(true)
+	more_hp["hp"] = 99
+	var trimmed := Sim.from_dict(more_hp)
+	assert(trimmed != null and trimmed.hp == int(trimmed.preset["hp_max"]),
+			"шапок больше нынешнего запаса — и забег не поднялся")
+
+	# Мусор в полях не роняет загрузку, а зажимается.
+	var junk := snap.duplicate(true)
+	junk["score"] = "много"
+	junk["t"] = INF
+	junk["santas"] = [{"x": -5000.0, "vx": 1e9, "sober": 100}, "не тело"]
+	junk["items"] = [{"kind": "bomb"}, {"kind": "brine", "x": 450.0}]
+	junk["victory"] = "да"
+	var probe := Sim.new()
+	assert(probe.restore(junk), "мусор в полях сорвал загрузку")
+	assert(probe.running, "строка в поле победы засчиталась победой")
+	assert(probe.score == 0 and probe.t == 0.0)
+	assert(probe.santas.size() == 1 and probe.santas[0].x == 0.0
+			and probe.santas[0].vx == CFG.VX_MAX and probe.santas[0].sober == CFG.SOBER_THRESHOLD * 2)
+	assert(probe.items.size() == 1 and probe.items[0].kind == "brine")
+
+
+## Снимки равны поле в поле. Дробные — с допуском: JSON-парсер Godot теряет
+## последний бит у семнадцатизначных чисел, и строки до цифры не сходятся.
+static func same_snapshot(a: Variant, b: Variant) -> bool:
+	if a is Dictionary and b is Dictionary:
+		if (a as Dictionary).size() != (b as Dictionary).size():
+			return false
+		for key: Variant in a:
+			if not (b as Dictionary).has(key) or not same_snapshot(a[key], b[key]):
+				return false
+		return true
+	if a is Array and b is Array:
+		if (a as Array).size() != (b as Array).size():
+			return false
+		for i in (a as Array).size():
+			if not same_snapshot(a[i], b[i]):
+				return false
+		return true
+	if a is float or b is float:
+		return (a is float or a is int) and (b is float or b is int) and is_equal_approx(a, b)
+	return typeof(a) == typeof(b) and a == b
+
+
 static func check_math() -> void:
 	var sim := Sim.new()
 	sim.start("santa", "normal")
@@ -159,6 +270,55 @@ static func check_math() -> void:
 
 
 ## Отрезвляет одно тело руками — быстрее, чем ждать, пока это сделает бот.
+## Забег кончается первым же концом за шаг. Если в одном шаге взят сотый
+## уровень и разбился последний, второй конец не случается: иначе итоги
+## показываются дважды, а выигранный забег сохраняется без шапок или
+## стирается как проигранный. Тела шаг обходит с конца списка.
+static func check_one_ending() -> void:
+	for victory_first: bool in [true, false]:
+		var sim := Sim.new()
+		sim.start("santa", "casual")
+		sim.level = CFG.LEVEL_MAX
+		sim.quota_need = CFG.quota_for(sim.preset, CFG.LEVEL_MAX)
+		sim.quota_done = sim.quota_need - 1
+		sim.hp = 1
+		sim.next_santa = INF
+		sim.aim_x = CFG.ARENA_W / 2.0
+
+		var hit := Sim.Santa.new()                  # трезвеет и закрывает сотый уровень
+		hit.x = sim.aim_x
+		hit.y = Sim.PLANE - 0.5
+		hit.vy = 200.0
+		hit.sober = CFG.SOBER_THRESHOLD - CFG.SOBER_GAIN_SWEET
+		var miss := Sim.Santa.new()                 # разбивается и забирает последнюю шапку
+		miss.x = 60.0
+		miss.y = CFG.ARENA_H + CFG.SANTA_RADIUS + 1.0
+		miss.vy = 100.0
+		sim.santas.append(miss if victory_first else hit)
+		sim.santas.append(hit if victory_first else miss)
+
+		var endings: Array[bool] = []
+		sim.finished.connect(func(victory: bool) -> void: endings.append(victory))
+		sim.step(1.0 / 120.0)
+		var what := "победа, потом падение" if victory_first else "падение, потом победа"
+		assert(endings.size() == 1 and endings[0] == victory_first,
+				"%s: концов забега за шаг %s" % [what, endings])
+		if victory_first:
+			assert(sim.outcome == Sim.Outcome.VICTORY and sim.hp == 1,
+					"%s: победу перебило падение после неё" % what)
+		else:
+			assert(sim.outcome == Sim.Outcome.DEFEAT and sim.quota_done == sim.quota_need - 1,
+					"%s: проигранный забег после конца ещё и выиграл" % what)
+
+
+## Переносит забег на сотый уровень и закрывает его квоту — то есть выигрывает.
+static func force_victory(sim: Sim) -> void:
+	sim.level = CFG.LEVEL_MAX
+	sim.quota_need = CFG.quota_for(sim.preset, CFG.LEVEL_MAX)
+	for i in sim.quota_need:
+		force_sober(sim)
+
+
 static func force_sober(sim: Sim) -> void:
 	var s := Sim.Santa.new()
 	s.x = sim.paddle_x

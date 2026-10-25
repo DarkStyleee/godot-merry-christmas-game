@@ -71,6 +71,20 @@ custom_minimum_size = Vector2(280, 0)
 mouse_filter = 2
 theme_override_constants/separation = 10
 
+[node name="ContinueBtn" type="Button" parent="RootBox/Buttons/Column"]
+unique_name_in_owner = true
+visible = false
+text = "Продолжить"
+
+[node name="ContinueNote" type="Label" parent="RootBox/Buttons/Column"]
+unique_name_in_owner = true
+visible = false
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.49, 0.541, 0.639, 1)
+theme_override_font_sizes/font_size = 12
+text = "уровень 1"
+horizontal_alignment = 1
+
 [node name="PlayBtn" type="Button" parent="RootBox/Buttons/Column"]
 unique_name_in_owner = true
 text = "Начать игру"
@@ -172,6 +186,51 @@ mouse_filter = 2
 unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 0)
 text = "Назад"
+
+[node name="ConfirmBox" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 140.0
+offset_bottom = -46.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+alignment = 1
+theme_override_constants/separation = 18
+
+[node name="ConfirmTitle" type="Label" parent="ConfirmBox"]
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.357, 0.392, 0.471, 1)
+theme_override_font_sizes/font_size = 13
+text = "НАЧАТЬ НОВЫЙ ЗАБЕГ?"
+horizontal_alignment = 1
+
+[node name="ConfirmNote" type="Label" parent="ConfirmBox"]
+unique_name_in_owner = true
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.624, 0.69, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+text = "Сохранённый забег закончится, его счёт уйдёт в рекорды"
+horizontal_alignment = 1
+
+[node name="ConfirmCenter" type="CenterContainer" parent="ConfirmBox"]
+mouse_filter = 2
+
+[node name="ConfirmButtons" type="HBoxContainer" parent="ConfirmBox/ConfirmCenter"]
+mouse_filter = 2
+theme_override_constants/separation = 16
+
+[node name="ConfirmBtn" type="Button" parent="ConfirmBox/ConfirmCenter/ConfirmButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 0)
+text = "Начать новый"
+
+[node name="CancelBtn" type="Button" parent="ConfirmBox/ConfirmCenter/ConfirmButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 0)
+text = "Отмена"
 
 [node name="Footer" type="Label" parent="."]
 anchor_top = 1.0

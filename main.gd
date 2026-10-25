@@ -9,6 +9,8 @@ extends Node
 
 enum Screen { MENU, PLAY, PAUSE, SETTINGS, RESULTS }
 
+const AUTOSAVE_EVERY := 5.0           ## секунд игрового времени между записями забега
+
 @onready var _arena: Arena = %Arena
 @onready var _menu: MainMenu = %MainMenu
 @onready var _pause: PauseMenu = %PauseMenu
@@ -17,6 +19,7 @@ enum Screen { MENU, PLAY, PAUSE, SETTINGS, RESULTS }
 
 var _screen := Screen.MENU
 var _settings_from := Screen.MENU
+var _saved_at := 0.0                  ## время забега (Sim.t) последней записи
 
 
 func _ready() -> void:
@@ -26,8 +29,10 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	Profile.sandbox = args.has("--check") or not _arg(args, "--shot").is_empty()
 	Profile.apply_window()
+	_menu.show_root()
 
 	_menu.start_requested.connect(start_run)
+	_menu.continue_requested.connect(continue_saved)
 	_menu.settings_requested.connect(open_settings)
 	_menu.quit_requested.connect(_quit)
 
@@ -43,6 +48,10 @@ func _ready() -> void:
 	_results.menu_requested.connect(_to_menu)
 
 	_arena.run_finished.connect(_on_run_finished)
+	# Отложенно: сигнал приходит посреди шага, когда новый уровень ещё не
+	# начался, а к концу кадра забег снова целый.
+	_arena.sim.level_cleared.connect(func(_level: int, _healed: bool) -> void:
+			_save_run.call_deferred())
 
 	_set_screen(Screen.MENU)
 	_handle_cmdline()
@@ -62,14 +71,41 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+func _physics_process(_delta: float) -> void:
+	_autosave()
+
+
+## Свернули окно или ушли из него (Alt+Tab, Win, клик мимо) — пауза: иначе
+## забег без игрока идёт дальше и может проиграться сам. Обратно с паузы
+## снимает только игрок.
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		_before_quit()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT and _screen == Screen.PLAY:
+		_pause_run()
 
 
 func _before_quit() -> void:
+	_save_run()
 	Profile.save()
 	Audio.stop_music()
+
+
+## Забег пишется на диск при каждой остановке: пауза, выход в меню, закрытие
+## окна, победа — и на каждом взятом уровне. Стирается, когда забег проигран
+## или начат новый.
+func _save_run() -> void:
+	if _arena.active and _arena.sim.can_continue():
+		Profile.save_run(_arena.sim.to_dict())
+		_saved_at = _arena.sim.t
+
+
+## А посреди игры — раз в AUTOSAVE_EVERY секунд её времени: выключение Windows
+## Godot 4.7 не ловит (WM_ENDSESSION не обрабатывается, закрытия окна не будет),
+## и снятый процесс тоже никого не спрашивает.
+func _autosave() -> void:
+	if _screen == Screen.PLAY and _arena.sim.t - _saved_at >= AUTOSAVE_EVERY:
+		_save_run()
 
 
 # ============================================================== экраны ====
@@ -103,8 +139,33 @@ func cancel() -> void:
 
 
 func start_run(mode_key: String, diff_key: String) -> void:
+	_abandon_saved()
 	_arena.start_run(mode_key, diff_key)
+	_saved_at = _arena.sim.t
 	_set_screen(Screen.PLAY)
+
+
+## Новый забег заканчивает сохранённый, и тот уходит в рекорды как доигранный:
+## счёт заработан честно, бросить забег не значит потерять рекорд. Снимок,
+## который не поднимается, засчитать нечем — он просто стирается.
+func _abandon_saved() -> void:
+	var saved := Sim.from_dict(Profile.load_run())
+	if saved != null:
+		Profile.submit_run(saved.stats())
+	Profile.clear_run()
+
+
+## Сохранённый забег открывается на паузе: игрок сначала видит поле, потом
+## жмёт «Продолжить» — а не получает падающего Деда Мороза в первую секунду.
+func continue_saved() -> void:
+	if not _arena.restore_run(Profile.load_run()):
+		Profile.clear_run()
+		_menu.show_root()
+		return
+	# Итоги победы игрок уже видел — выигранный забег сразу идёт дальше.
+	if _arena.sim.outcome == Sim.Outcome.VICTORY:
+		_arena.resume_endless()
+	_pause_run()
 
 
 func open_settings() -> void:
@@ -122,6 +183,7 @@ func _continue_endless() -> void:
 
 
 func _pause_run() -> void:
+	_save_run()
 	_pause.show_run(_arena.sim)
 	_set_screen(Screen.PAUSE)
 
@@ -135,6 +197,7 @@ func _close_settings() -> void:
 
 
 func _to_menu() -> void:
+	_save_run()
 	_arena.stop_run()
 	_set_screen(Screen.MENU)
 
@@ -144,7 +207,13 @@ func _quit() -> void:
 	get_tree().quit()
 
 
+## Выигранный забег остаётся сохранённым: игру без конца можно начать и потом,
+## из меню, а не только с экрана итогов. Проигранный продолжать нечего.
 func _on_run_finished(stats: Dictionary) -> void:
+	if stats["victory"]:
+		_save_run()
+	else:
+		Profile.clear_run()
 	var is_record := Profile.submit_run(stats)
 	_results.show_stats(stats, is_record)
 	_set_screen(Screen.RESULTS)
@@ -154,7 +223,7 @@ func _on_run_finished(stats: Dictionary) -> void:
 
 ## Режимы для сборки и разработки, в обычной игре не участвуют:
 ##   godot --headless -- --check              формулы, кривые уровней, бот
-##   godot -- --shot out.png --screen menu|mode|difficulty|settings|play|pause|over|win
+##   godot -- --shot out.png --screen menu|mode|difficulty|settings|play|pause|continue|confirm|over|win
 ##                           [--mode santa|ball] [--diff normal] [--ff 45] [--fx]
 func _handle_cmdline() -> void:
 	var args := OS.get_cmdline_user_args()
@@ -192,6 +261,14 @@ func _handle_cmdline() -> void:
 		"pause":
 			_fast_forward(mode, diff, seconds, fx)
 			_pause_run()
+		"continue":
+			_fast_forward(mode, diff, seconds, fx)
+			_to_menu()
+		"confirm":
+			_fast_forward(mode, diff, seconds, fx)
+			_to_menu()
+			_menu.show_difficulty(mode)
+			_menu.pick_difficulty(diff)
 		"over":
 			_fast_forward(mode, diff, seconds, fx)
 			while _arena.sim.running:
@@ -231,6 +308,8 @@ func _check_flow() -> void:
 	var tree := get_tree()
 	assert(_screen == Screen.MENU, "старт не с меню")
 	assert(not tree.paused)
+	assert(get_viewport().gui_get_focus_owner() != null,
+			"при запуске ни одна кнопка меню не в фокусе: Enter ничего не делает")
 
 	start_run("santa", "normal")
 	assert(_screen == Screen.PLAY)
@@ -267,6 +346,123 @@ func _check_flow() -> void:
 	cancel()
 	assert(_screen == Screen.MENU)
 	assert(not _arena.active, "вышли в меню, а арена жива")
+	assert(Profile.load_run().is_empty(), "законченный забег остался в сохранении")
+	assert(not _menu.has_saved_run(), "меню предлагает продолжить законченный забег")
+
+	# Недоигранный забег переживает выход в меню и поднимается тем же, каким был.
+	start_run("santa", "normal")
+	SelfCheck.play(_arena.sim, 20.0)
+	assert(_arena.sim.running, "бот не дожил до сохранения")
+	cancel()
+	var saved := _arena.sim.to_dict()
+	_to_menu()
+	assert(_menu.has_saved_run(), "в меню нет «Продолжить»")
+	continue_saved()
+	assert(_screen == Screen.PAUSE and tree.paused, "сохранённый забег открылся не на паузе")
+	assert(_arena.active and _arena.sim.running)
+	assert(SelfCheck.same_snapshot(_arena.sim.to_dict(), saved),
+			"после «Продолжить» забег не тот, что ушёл в меню")
+	cancel()
+	assert(_screen == Screen.PLAY and not tree.paused)
+	while _arena.sim.running:
+		_arena.sim.grace_until = -1.0
+		_arena.sim.lose_hp()
+	assert(Profile.load_run().is_empty(), "проигранный забег остался в сохранении")
+	cancel()
+
+	# Новый забег поверх сохранённого сохранение стирает.
+	start_run("santa", "casual")
+	cancel()
+	_to_menu()
+	assert(_menu.has_saved_run())
+	start_run("santa", "normal")
+	assert(Profile.load_run().is_empty(), "новый забег не стёр старое сохранение")
+	_to_menu()
+	Profile.clear_run()
+
+	# Выигранный забег переживает экран итогов: из меню он продолжается игрой
+	# без конца, на паузе, а не теряется вместе с итогами.
+	start_run("santa", "normal")
+	SelfCheck.force_victory(_arena.sim)
+	assert(_screen == Screen.RESULTS, "победа не привела к итогам")
+	assert(not Profile.load_run().is_empty(), "выигранный забег не сохранился")
+	_to_menu()
+	assert(_menu.has_saved_run(), "в меню нет «Продолжить» для выигранного забега")
+	continue_saved()
+	assert(_screen == Screen.PAUSE and tree.paused, "выигранный забег открылся не на паузе")
+	assert(_arena.sim.running and _arena.sim.endless and _arena.sim.level == CFG.LEVEL_MAX + 1,
+			"«Продолжить» после победы не повело в игру без конца")
+	_to_menu()
+	Profile.clear_run()
+
+	# Посреди игры снимок пишется сам раз в пять секунд: выключенный компьютер
+	# или снятый процесс теряют не больше. Отсчёт у каждого забега свой.
+	start_run("santa", "normal")
+	SelfCheck.play(_arena.sim, 3.0)
+	_autosave()
+	assert(Profile.load_run().is_empty(), "снимок пишется чаще, чем раз в пять секунд")
+	SelfCheck.play(_arena.sim, 3.0)
+	_autosave()
+	assert(not Profile.load_run().is_empty(), "забег идёт шесть секунд, а снимка нет")
+	start_run("santa", "normal")
+	SelfCheck.play(_arena.sim, 6.0)
+	_autosave()
+	assert(not Profile.load_run().is_empty(), "отсчёт записи перенёсся из прошлого забега")
+	_to_menu()
+	Profile.clear_run()
+
+	# Ушёл из окна — игра встаёт на паузу и пишет снимок; вернулся — пауза
+	# остаётся, пока игрок сам не продолжит. Уведомление идёт тем же путём, что
+	# от движка: от корня дерева.
+	start_run("santa", "normal")
+	SelfCheck.play(_arena.sim, 1.0)
+	tree.root.propagate_notification(NOTIFICATION_APPLICATION_FOCUS_OUT)
+	assert(_screen == Screen.PAUSE and tree.paused, "потеря фокуса не поставила паузу")
+	assert(SelfCheck.same_snapshot(Profile.load_run(), _arena.sim.to_dict()),
+			"потеря фокуса не записала снимок")
+	tree.root.propagate_notification(NOTIFICATION_APPLICATION_FOCUS_IN)
+	assert(_screen == Screen.PAUSE and tree.paused, "возврат в окно сам снял паузу")
+	_to_menu()
+	Profile.clear_run()
+
+	# Новый забег засчитывает брошенный в рекорды: счёт заработан, и бросить
+	# забег не значит потерять рекорд. Нечитаемый снимок засчитать нечем.
+	start_run("santa", "casual")
+	SelfCheck.play(_arena.sim, 2.0)
+	_arena.sim.score = 987_654_321
+	_to_menu()
+	start_run("santa", "normal")
+	assert(Profile.best_score(CFG.record_key("santa", "casual")) == 987_654_321,
+			"брошенный забег не попал в рекорды")
+	_to_menu()
+	Profile.save_run({"version": 999, "mode": "santa", "diff": "hardcore", "score": 5, "level": 3})
+	start_run("santa", "normal")
+	assert(Profile.record_for(CFG.record_key("santa", "hardcore")).is_empty(),
+			"нечитаемый снимок попал в рекорды")
+	_to_menu()
+	Profile.clear_run()
+
+	# При сохранённом забеге выбор сложности сперва спрашивает: новый забег не
+	# начинается и старый не стирается, пока игрок не подтвердит. Esc — отмена.
+	start_run("santa", "casual")
+	_to_menu()
+	_menu.show_difficulty("santa")
+	_menu.pick_difficulty("normal")
+	assert(_screen == Screen.MENU and _menu.is_confirming(), "новый забег начался без вопроса")
+	assert(not Profile.load_run().is_empty(), "сохранённый забег стёрт до подтверждения")
+	cancel()
+	assert(_screen == Screen.MENU and not _menu.is_confirming(), "Esc не отменил вопрос")
+	_menu.pick_difficulty("normal")
+	_menu.confirm_new()
+	assert(_screen == Screen.PLAY and _arena.sim.diff == "normal", "подтверждение не начало забег")
+	_to_menu()
+	Profile.clear_run()
+	_menu.show_root()
+	_menu.show_difficulty("santa")
+	_menu.pick_difficulty("normal")
+	assert(_screen == Screen.PLAY, "без сохранённого забега выбор сложности не начал забег")
+	_to_menu()
+	Profile.clear_run()
 
 	# Второй режим доходит до арены своим ключом рекорда и своей ареной с шаром.
 	start_run("ball", "normal")

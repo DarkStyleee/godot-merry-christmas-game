@@ -137,6 +137,19 @@ func _ready() -> void:
 
 func start_run(mode_key: String, diff_key: String) -> void:
 	sim.start(mode_key, diff_key)
+	_begin()
+
+
+## Сохранённый забег. false — снимок не годится, арена не тронута.
+func restore_run(data: Dictionary) -> bool:
+	if not sim.restore(data):
+		return false
+	_begin()
+	_hud.show_banner(sim.level)        # напомнить, где остановились
+	return true
+
+
+func _begin() -> void:
 	active = true
 	_puffs.clear()
 	_pops.clear()

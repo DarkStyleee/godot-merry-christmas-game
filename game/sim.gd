@@ -156,6 +156,11 @@ func start(mode_key: String, diff_key: String) -> void:
 	balls_lost = 0
 
 
+## Забег есть что продолжать: он живой или выигран и ждёт игры без конца.
+func can_continue() -> bool:
+	return running or outcome == Outcome.VICTORY
+
+
 ## Продолжить забег после взятого сотого уровня — уже без потолка.
 func continue_endless() -> void:
 	if outcome != Outcome.VICTORY:
@@ -166,6 +171,178 @@ func continue_endless() -> void:
 	level += 1
 	quota_done = 0
 	quota_need = CFG.quota_for(preset, level)
+
+
+# ========================================================== сохранение ====
+
+## Меняется, когда старое сохранение больше нельзя читать по новым правилам.
+## Новое поле версию не трогает: его нет в файле — остаётся значение из start().
+const SAVE_VERSION := 1
+const SAVE_MAX_BODIES := 64          ## улетающих тоже считаем, поэтому выше MAX_ON_FIELD
+
+## Снимок забега простыми типами — для JSON. Пишется живой забег и выигранный:
+## второй продолжается игрой без конца. Проигранный продолжать нечего.
+func to_dict() -> Dictionary:
+	var bodies: Array[Dictionary] = []
+	for s in santas:
+		bodies.append(_body_to_dict(s))
+	var things: Array[Dictionary] = []
+	for it in items:
+		things.append({"kind": it.kind, "x": it.x, "y": it.y})
+	return {
+		"version": SAVE_VERSION,
+		"mode": mode, "diff": diff, "endless": endless,
+		"victory": outcome == Outcome.VICTORY,
+		"t": t, "level": level, "hp": hp, "score": score, "mult": mult, "streak": streak,
+		"santas": bodies, "items": things,
+		"ball": null if ball == null else _body_to_dict(ball),
+		"ball_wait": ball_wait,
+		"paddle_x": paddle_x,
+		"quota_done": quota_done,
+		"next_santa": next_santa, "next_bonus": next_bonus, "next_brine": next_brine,
+		"next_hazard": next_hazard, "wide_until": wide_until, "high_until": high_until,
+		"slow_until": slow_until, "snack": snack, "grace_until": grace_until,
+		"bounces": bounces, "sweet_hits": sweet_hits, "sobered": sobered_total,
+		"misses": misses, "items_good": items_good, "items_bad": items_bad,
+		"max_streak": max_streak, "balls_lost": balls_lost,
+	}
+
+
+## Поднимает забег из снимка. Файл лежит в пользовательской папке и правится
+## руками, поэтому всё прочитанное зажимается в пределы, а без чего забег не
+## живёт (режим, сложность, уровень, HP), проверяется строго: не прошло —
+## false, и забег остаётся нетронутым. Квота уровня не читается, а
+## пересчитывается: она целиком выводится из пресета и уровня.
+func restore(d: Dictionary) -> bool:
+	if int(_num(d, "version", 0)) != SAVE_VERSION:
+		return false
+	var mode_key: Variant = d.get("mode")
+	var diff_key: Variant = d.get("diff")
+	if not (mode_key is String and CFG.MODES.has(mode_key)
+			and diff_key is String and CFG.DIFFICULTY.has(diff_key)):
+		return false
+	var p := CFG.preset(diff_key)
+	var is_endless := bool(d.get("endless", false))
+	var won: bool = d.get("victory") is bool and d["victory"]
+	var lvl := int(_num(d, "level", 0))
+	var life := int(_num(d, "hp", 0))
+	if lvl < 1 or lvl > CFG.LEVEL_MAX * 100 or (lvl > CFG.LEVEL_MAX and not is_endless):
+		return false
+	if won and (lvl != CFG.LEVEL_MAX or is_endless):
+		return false
+	if life < 1:
+		return false
+
+	start(mode_key, diff_key)
+	endless = is_endless
+	level = lvl
+	# Сверху зажимаем, а не отвергаем: обновление баланса может урезать запас
+	# шапок, и забег из прошлой версии должен продолжиться, а не пропасть.
+	hp = mini(life, int(p["hp_max"]))
+	t = maxf(0.0, _num(d, "t", 0.0))
+	score = clampi(int(_num(d, "score", 0)), 0, 1_000_000_000)
+	mult = clampi(int(_num(d, "mult", 1)), 1, CFG.MAX_MULT)
+	streak = maxi(0, int(_num(d, "streak", 0)))
+	quota_need = CFG.quota_for(preset, level)
+	# Квота добирается до конца только у выигранного: живой с полной квотой уже
+	# перешёл бы на следующий уровень.
+	quota_done = clampi(int(_num(d, "quota_done", 0)), 0, quota_need if won else quota_need - 1)
+	if won:
+		running = false
+		outcome = Outcome.VICTORY
+
+	paddle_x = clampf(_num(d, "paddle_x", paddle_x), 0.0, CFG.ARENA_W)
+	aim_x = paddle_x
+	var bodies: Variant = d.get("santas", [])
+	if bodies is Array:
+		for raw: Variant in bodies:
+			if raw is Dictionary and santas.size() < SAVE_MAX_BODIES:
+				santas.append(_body_from_dict(raw))
+	var things: Variant = d.get("items", [])
+	if things is Array:
+		for raw: Variant in things:
+			if raw is Dictionary and items.size() < SAVE_MAX_BODIES:
+				var it := _item_from_dict(raw)
+				if it != null:
+					items.append(it)
+	if mode == "ball" and d.get("ball") is Dictionary:
+		ball = _body_from_dict(d["ball"])
+	# Снизу не зажимаем: после возврата шара счётчик остаётся чуть ниже нуля.
+	ball_wait = minf(_num(d, "ball_wait", ball_wait), CFG.BALL_RESPAWN)
+
+	next_santa = _num(d, "next_santa", next_santa)
+	next_bonus = _num(d, "next_bonus", next_bonus)
+	next_brine = _num(d, "next_brine", next_brine)
+	next_hazard = _num(d, "next_hazard", next_hazard)
+	wide_until = _num(d, "wide_until", wide_until)
+	high_until = _num(d, "high_until", high_until)
+	slow_until = _num(d, "slow_until", slow_until)
+	snack = clampi(int(_num(d, "snack", 0)), 0, CFG.SNACK_BOUNCES)
+	grace_until = _num(d, "grace_until", grace_until)
+
+	bounces = maxi(0, int(_num(d, "bounces", 0)))
+	sweet_hits = maxi(0, int(_num(d, "sweet_hits", 0)))
+	sobered_total = maxi(0, int(_num(d, "sobered", 0)))
+	misses = maxi(0, int(_num(d, "misses", 0)))
+	items_good = maxi(0, int(_num(d, "items_good", 0)))
+	items_bad = maxi(0, int(_num(d, "items_bad", 0)))
+	max_streak = maxi(streak, int(_num(d, "max_streak", 0)))
+	balls_lost = maxi(0, int(_num(d, "balls_lost", 0)))
+	return true
+
+
+## Забег из снимка или null, если снимок не поднимается.
+static func from_dict(d: Dictionary) -> Sim:
+	var sim := Sim.new()
+	return sim if sim.restore(d) else null
+
+
+func _body_to_dict(s: Santa) -> Dictionary:
+	return {
+		"x": s.x, "y": s.y, "vx": s.vx, "vy": s.vy, "sober": s.sober,
+		"phase": s.phase, "rot": s.rot, "spin": s.spin, "flip": s.flip,
+		"anim": s.anim_offset, "escaping": s.escaping,
+	}
+
+
+func _body_from_dict(d: Dictionary) -> Santa:
+	var s := Santa.new()
+	s.x = clampf(_num(d, "x", CFG.ARENA_W / 2.0), 0.0, CFG.ARENA_W)
+	# Между шагами тело бывает чуть ниже пола (уберётся на следующем), а
+	# улетающее — трезвее порога: последний удар мог дать больше одного деления.
+	s.y = clampf(_num(d, "y", 0.0), -200.0, CFG.ARENA_H + 2.0 * CFG.SANTA_RADIUS)
+	s.vx = clampf(_num(d, "vx", 0.0), -CFG.VX_MAX, CFG.VX_MAX)
+	s.vy = clampf(_num(d, "vy", 0.0), -10_000.0, 10_000.0)
+	s.sober = clampi(int(_num(d, "sober", 0)), 0, CFG.SOBER_THRESHOLD * 2)
+	s.phase = _num(d, "phase", 0.0)
+	s.rot = _num(d, "rot", 0.0)
+	s.spin = clampf(_num(d, "spin", 0.0), -3.2, 3.2)
+	s.flip = bool(d.get("flip", false))
+	s.anim_offset = int(_num(d, "anim", 0))
+	s.escaping = bool(d.get("escaping", false))
+	return s
+
+
+func _item_from_dict(d: Dictionary) -> Item:
+	var kind := str(d.get("kind", ""))
+	var bad: bool = kind in ["coal", "bottle"]
+	if not (bad or kind in BONUS_KINDS or kind == "brine"):
+		return null
+	var it := Item.new()
+	it.kind = kind
+	it.bad = bad
+	it.x = clampf(_num(d, "x", CFG.ARENA_W / 2.0), 0.0, CFG.ARENA_W)
+	it.y = clampf(_num(d, "y", 0.0), -CFG.ITEM_RADIUS, CFG.ARENA_H + 2.0 * CFG.ITEM_RADIUS)
+	return it
+
+
+## Число из снимка или запасное значение: JSON отдаёт числа как float, а
+## руками туда можно вписать что угодно, включая строку и бесконечность.
+static func _num(d: Dictionary, key: String, fallback: float) -> float:
+	var v: Variant = d.get(key)
+	if (v is float or v is int) and is_finite(float(v)):
+		return float(v)
+	return fallback
 
 
 func gravity_now() -> float:
@@ -223,7 +400,11 @@ func step(dt: float) -> void:
 	if mode == "ball":
 		_step_ball(dt, g, half_w)
 
+	# Забег кончается первым же концом за шаг: победа и разбившийся следом
+	# последний дали бы два конца, и выигранный забег стёрся бы как проигранный.
 	for i in range(santas.size() - 1, -1, -1):
+		if not running:
+			return
 		var s := santas[i]
 
 		if s.escaping:                                # протрезвел — улетает вверх
@@ -269,6 +450,8 @@ func step(dt: float) -> void:
 				lose_hp()
 
 	for i in range(items.size() - 1, -1, -1):
+		if not running:
+			return
 		var it := items[i]
 		it.y += CFG.ITEM_FALL_SPEED * dt
 		var hit_paddle := (it.y + CFG.ITEM_RADIUS >= PADDLE_TOP

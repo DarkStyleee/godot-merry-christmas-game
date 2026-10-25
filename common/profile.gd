@@ -1,5 +1,6 @@
 extends Node
-## Профиль игрока: настройки и рекорды. Автозагрузка, живёт весь сеанс.
+## Профиль игрока: настройки, рекорды и сохранённый забег. Автозагрузка, живёт
+## весь сеанс.
 ##
 ## Формат — ConfigFile в user://profile.cfg. Файл лежит в пользовательской
 ## папке, править его руками может кто угодно, поэтому всё, что прочитано,
@@ -7,6 +8,10 @@ extends Node
 
 const PATH := "user://profile.cfg"
 const LEGACY_PATH := "user://records.json"    ## формат до появления настроек
+## Сохранённый забег. Отдельно от профиля: он живёт до поражения или нового
+## забега, а профиль — всегда, и битый снимок не должен утащить за собой рекорды.
+const RUN_PATH := "user://run.json"
+const RUN_TMP_PATH := "user://run.json.tmp"     ## новый снимок, пока он пишется
 
 signal settings_changed
 
@@ -26,6 +31,9 @@ var records: Dictionary = {}
 
 ## Отладочный прогон: на диск не пишем, чужие рекорды не портим.
 var sandbox := false
+## Сохранённый забег отладочного прогона — тот же JSON, только в памяти, чтобы
+## проверка потока ходила через сериализацию, а не мимо неё.
+var _sandbox_run := ""
 
 
 func _ready() -> void:
@@ -98,6 +106,60 @@ func save() -> void:
 	var err := cf.save(PATH)
 	if err != OK:
 		push_warning("Профиль не сохранился: %s" % error_string(err))
+
+
+## Снимок забега из Sim.to_dict(). Что в нём лежит, Profile не знает и не
+## проверяет — это дело Sim.restore().
+##
+## Пишется целиком во временный файл и только потом подменяет старый: процесс,
+## снятый посреди записи, оставляет прошлый снимок, а не обрезок. Подмена в
+## Godot на Windows двухшаговая — удалить старый, переименовать новый, — и
+## между шагами на диске только временный файл; его подберёт load_run().
+func save_run(data: Dictionary) -> void:
+	var text := JSON.stringify(data, "", false, true)
+	if sandbox:
+		_sandbox_run = text
+		return
+	# Основного нет, а временный есть — прошлая подмена оборвалась между шагами,
+	# и временный сейчас единственная целая копия. Делаем его основным раньше,
+	# чем запись ниже его обнулит.
+	if not FileAccess.file_exists(RUN_PATH) and FileAccess.file_exists(RUN_TMP_PATH):
+		DirAccess.rename_absolute(ProjectSettings.globalize_path(RUN_TMP_PATH),
+				ProjectSettings.globalize_path(RUN_PATH))
+	var f := FileAccess.open(RUN_TMP_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Забег не сохранился: %s" % error_string(FileAccess.get_open_error()))
+		return
+	var written := f.store_string(text)
+	f.close()
+	if not written:
+		push_warning("Забег не сохранился: запись оборвалась")
+		return
+	var err := DirAccess.rename_absolute(ProjectSettings.globalize_path(RUN_TMP_PATH),
+			ProjectSettings.globalize_path(RUN_PATH))
+	if err != OK:
+		push_warning("Забег не сохранился: %s" % error_string(err))
+
+
+## Пустой словарь — сохранённого забега нет или файл не читается.
+func load_run() -> Dictionary:
+	var text := _sandbox_run
+	if not sandbox:
+		var path := RUN_PATH if FileAccess.file_exists(RUN_PATH) else RUN_TMP_PATH
+		if not FileAccess.file_exists(path):
+			return {}
+		text = FileAccess.get_file_as_string(path)
+	var data: Variant = JSON.parse_string(text) if not text.is_empty() else null
+	return data if data is Dictionary else {}
+
+
+func clear_run() -> void:
+	if sandbox:
+		_sandbox_run = ""
+		return
+	for path: String in [RUN_PATH, RUN_TMP_PATH]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 func _load() -> void:

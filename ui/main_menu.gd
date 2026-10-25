@@ -7,6 +7,7 @@ extends Control
 ## подхватит.
 
 signal start_requested(mode_key: String, diff_key: String)
+signal continue_requested
 signal settings_requested
 signal quit_requested
 
@@ -20,23 +21,34 @@ const MODE_CARD_WIDTH := 300.0
 @onready var _cards: HBoxContainer = %Cards
 @onready var _diff_title: Label = %DiffTitle
 @onready var _records: GridContainer = %Records
+@onready var _continue_btn: Button = %ContinueBtn
+@onready var _continue_note: Label = %ContinueNote
 @onready var _play_btn: Button = %PlayBtn
 @onready var _settings_btn: Button = %SettingsBtn
 @onready var _quit_btn: Button = %QuitBtn
 @onready var _mode_back_btn: Button = %ModeBackBtn
 @onready var _back_btn: Button = %BackBtn
+@onready var _confirm_box: VBoxContainer = %ConfirmBox
+@onready var _confirm_note: Label = %ConfirmNote
+@onready var _confirm_btn: Button = %ConfirmBtn
+@onready var _cancel_btn: Button = %CancelBtn
 @onready var _version: Label = %Version
 
 var _mode := "santa"                   ## режим, выбранный на предыдущем шаге
 var _card_notes: Dictionary = {}       ## diff -> Label с рекордом на карточке
+var _saved_note := ""                  ## «режим · сложность · уровень · счёт» сохранённого забега
+var _picked_diff := ""                 ## сложность, которая ждёт подтверждения
 
 
 func _ready() -> void:
+	_continue_btn.pressed.connect(func() -> void: continue_requested.emit())
 	_play_btn.pressed.connect(show_modes)
 	_settings_btn.pressed.connect(func() -> void: settings_requested.emit())
 	_quit_btn.pressed.connect(func() -> void: quit_requested.emit())
 	_mode_back_btn.pressed.connect(show_root)
 	_back_btn.pressed.connect(show_modes)
+	_confirm_btn.pressed.connect(confirm_new)
+	_cancel_btn.pressed.connect(show_difficulty)
 	_version.text = "v%s" % ProjectSettings.get_setting("application/config/version", "1.0")
 	_build_mode_cards()
 	_build_cards()
@@ -45,36 +57,80 @@ func _ready() -> void:
 
 
 func show_root() -> void:
-	_root_box.visible = true
-	_mode_box.visible = false
-	_diff_box.visible = false
-	_play_btn.grab_focus()
+	_show_box(_root_box)
+	_refresh_continue()
+	(_continue_btn if _continue_btn.visible else _play_btn).grab_focus()
+
+
+func has_saved_run() -> bool:
+	return _continue_btn.visible
+
+
+## Кнопка есть, только если снимок поднимается: проверяет его тот же
+## Sim.restore(), что потом и продолжит забег, — иначе меню обещало бы забег,
+## которого не будет. Подпись — чтобы было видно, что потеряет «Начать игру».
+## Первый show_root() зовёт main.gd: в _ready меню ещё не знает, песочница ли это.
+func _refresh_continue() -> void:
+	var sim := Sim.from_dict(Profile.load_run())
+	var ok := sim != null
+	_continue_btn.visible = ok
+	_continue_note.visible = ok
+	if ok:
+		_saved_note = "%s · %s · %s · счёт %d" % [
+			CFG.mode(sim.mode)["short"], sim.preset["label"],
+			"победа" if sim.outcome == Sim.Outcome.VICTORY else "уровень %d" % sim.level,
+			sim.score,
+		]
+		_continue_note.text = _saved_note
 
 
 func show_modes() -> void:
-	_root_box.visible = false
-	_mode_box.visible = true
-	_diff_box.visible = false
+	_show_box(_mode_box)
 	_focus_first(_mode_cards)
 
 
 func show_difficulty(mode_key := "") -> void:
 	if not mode_key.is_empty():
 		_mode = mode_key
-	_root_box.visible = false
-	_mode_box.visible = false
-	_diff_box.visible = true
+	_show_box(_diff_box)
 	_diff_title.text = "ВЫБЕРИТЕ СЛОЖНОСТЬ   ·   %s" % str(CFG.mode(_mode)["label"]).to_upper()
 	_refresh()                         # рекорды на карточках — уже этого режима
 	_focus_first(_cards)
 
 
+## Карточка сложности. При сохранённом забеге сперва спрашиваем: новый забег
+## закончит его. Фокус на «Отмене» — Enter по инерции не должен стереть часы игры.
+func pick_difficulty(diff_key: String) -> void:
+	if not has_saved_run():
+		start_requested.emit(_mode, diff_key)
+		return
+	_picked_diff = diff_key
+	_confirm_note.text = "Сохранённый забег закончится, его счёт уйдёт в рекорды:\n%s" % _saved_note
+	_show_box(_confirm_box)
+	_cancel_btn.grab_focus()
+
+
+func is_confirming() -> bool:
+	return _confirm_box.visible
+
+
+func confirm_new() -> void:
+	start_requested.emit(_mode, _picked_diff)
+
+
 ## Esc и кнопка «назад» — один и тот же путь на шаг назад.
 func back() -> void:
-	if _diff_box.visible:
+	if _confirm_box.visible:
+		show_difficulty()
+	elif _diff_box.visible:
 		show_modes()
 	else:
 		show_root()
+
+
+func _show_box(box: Control) -> void:
+	for b: Control in [_root_box, _mode_box, _diff_box, _confirm_box]:
+		b.visible = b == box
 
 
 func _on_visibility_changed() -> void:
@@ -136,7 +192,7 @@ func _build_cards() -> void:
 		var btn := Button.new()
 		btn.text = str(preset["label"])
 		btn.custom_minimum_size = Vector2(CARD_WIDTH, 56)
-		btn.pressed.connect(func() -> void: start_requested.emit(_mode, key))
+		btn.pressed.connect(pick_difficulty.bind(key))
 		card.add_child(btn)
 
 		var hint := Label.new()
